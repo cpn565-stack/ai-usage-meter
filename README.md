@@ -1,8 +1,10 @@
 # AI Usage Meter
 
+[![Build](https://github.com/cpn565-stack/ai-usage-meter/actions/workflows/build.yml/badge.svg)](https://github.com/cpn565-stack/ai-usage-meter/actions/workflows/build.yml)
+
 A lightweight macOS **menu bar** app that shows your official **Claude**, **Codex (ChatGPT)**, and **Gemini (Antigravity)** usage — 5‑hour and weekly windows — at a glance, so you never blindly hit a rate limit.
 
-Built with native SwiftUI `MenuBarExtra`. No Dock icon, no background server, no third‑party telemetry. It reads the credentials already stored on your machine by the official desktop apps and calls each provider's own usage endpoint.
+Built with native AppKit (`NSStatusItem` + `NSPopover`). No Dock icon, no background server, no third‑party telemetry. It reads the credentials already stored on your machine by the official desktop apps and calls each provider's own usage endpoint.
 
 ## Features
 
