@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 // `--refresh-claude`:一次性測試 Claude 續期+寫回(驗證 Swift 加密寫回正確)。
 if CommandLine.arguments.contains("--refresh-claude") {
@@ -44,5 +45,8 @@ if CommandLine.arguments.contains("--once") {
     }
     sem.wait()
 } else {
-    UsageMeterApp.main()
+    let app = NSApplication.shared
+    let delegate = AppDelegate()
+    app.delegate = delegate          // NSApplication.delegate 是 weak,delegate 由本檔頂層 let 持有
+    app.run()
 }

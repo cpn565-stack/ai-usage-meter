@@ -1,27 +1,70 @@
-import SwiftUI
 import AppKit
+import Combine
 
-struct UsageMeterApp: App {
-    @StateObject private var store = UsageStore()
-    @ObservedObject private var prefs = Prefs.shared
+/// 純 menu bar app 進入點:NSStatusItem + NSPopover(取代 SwiftUI MenuBarExtra,降低常駐記憶體)。
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var store: UsageStore!
+    private var statusItem: NSStatusItem!
+    private var popover: NSPopover!
+    private var panel: PanelViewController!
+    private var settingsWC: SettingsWindowController?
+    private var cancellables = Set<AnyCancellable>()
 
-    init() {
-        // 純 menu bar app:不顯示 Dock 圖示。
-        NSApplication.shared.setActivationPolicy(.accessory)
+    // main.swift 頂層(nonisolated)要能建立本物件;@MainActor 物件改在啟動時才建。
+    nonisolated override init() { super.init() }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)   // 不顯示 Dock 圖示
+        store = UsageStore()
+        popover = NSPopover()
+
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let button = statusItem.button {
+            let img = NSImage(systemSymbolName: "gauge.with.dots.needle.50percent",
+                              accessibilityDescription: "AI Usage")
+            img?.isTemplate = true
+            button.image = img
+            button.imagePosition = .imageLeading
+            button.target = self
+            button.action = #selector(togglePopover)
+        }
+
+        panel = PanelViewController(store: store, openSettings: { [weak self] in self?.openSettings() })
+        popover.behavior = .transient
+        popover.animates = false
+        popover.contentViewController = panel
+
+        // 選單列文字:用量或偏好(選單來源/語言)改變時更新。
+        store.$results
+            .sink { [weak self] _ in Task { @MainActor in self?.updateTitle() } }
+            .store(in: &cancellables)
+        Prefs.shared.objectWillChange
+            .sink { [weak self] _ in Task { @MainActor in self?.updateTitle() } }
+            .store(in: &cancellables)
+        updateTitle()
     }
 
-    var body: some Scene {
-        MenuBarExtra {
-            MenuView(store: store)
-        } label: {
-            Image(systemName: "gauge.with.dots.needle.50percent")
-            Text(store.menuBarText)
-        }
-        .menuBarExtraStyle(.window)
+    private func updateTitle() {
+        statusItem?.button?.title = " " + store.menuBarText
+    }
 
-        Window(Loc.tr("set.title", prefs.language), id: "settings") {
-            SettingsView(store: store)
+    @objc private func togglePopover() {
+        guard let button = statusItem.button else { return }
+        if popover.isShown {
+            popover.performClose(nil)
+        } else {
+            Task { await store.refreshIfStale(60) }   // 打開時資料過舊就重抓
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         }
-        .windowResizability(.contentSize)
+    }
+
+    private func openSettings() {
+        popover.performClose(nil)
+        if settingsWC == nil { settingsWC = SettingsWindowController(store: store) }
+        settingsWC?.showWindow(nil)
+        settingsWC?.window?.center()
+        settingsWC?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
