@@ -1,0 +1,23 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: swift build (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 真正的 Secrets.swift 不進版控(見 .gitignore);CI 用範本補一份佔位值即可編譯。
+      - name: Provide placeholder Secrets.swift
+        run: cp Secrets.example.swift Sources/UsageMeter/Secrets.swift
+
+      - name: Build (debug)
+        run: swift build
+
+      - name: Build (release)
+        run: swift build -c release

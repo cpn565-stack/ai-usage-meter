@@ -16,6 +16,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp "$BIN" "$APP/Contents/MacOS/UsageMeter"
 
+# strip 符號(在簽章前做;簽章會封存二進位,事後改動會失效)。約砍一半體積。
+strip -rSTx "$APP/Contents/MacOS/UsageMeter"
+
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
