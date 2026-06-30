@@ -3,7 +3,12 @@ name: Build
 on:
   push:
     branches: [main]
+    tags:
+      - "v*"
   pull_request:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -19,5 +24,43 @@ jobs:
       - name: Build (debug)
         run: swift build
 
+      - name: Parser self-test
+        run: swift run UsageMeter --self-test-parsers
+
       - name: Build (release)
         run: swift build -c release
+
+  release:
+    name: package release dmg
+    runs-on: macos-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      # 真正的 Secrets.swift 不進版控(見 .gitignore);CI 用範本補一份佔位值即可編譯。
+      - name: Provide placeholder Secrets.swift
+        run: cp Secrets.example.swift Sources/UsageMeter/Secrets.swift
+
+      - name: Package DMG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" BUILD_NUMBER="${GITHUB_RUN_NUMBER}" ./make-dmg.sh
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: UsageMeter-${{ github.ref_name }}
+          path: UsageMeter-*.dmg
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DMG="UsageMeter-${GITHUB_REF_NAME#v}.dmg"
+          NOTES="Self-signed macOS build. If Gatekeeper blocks first launch, open System Settings > Privacy & Security and choose Open Anyway."
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$DMG" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$DMG" --title "UsageMeter $GITHUB_REF_NAME" --notes "$NOTES"
+          fi

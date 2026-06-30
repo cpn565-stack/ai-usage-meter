@@ -4,8 +4,17 @@ set -e
 cd "$(dirname "$0")"
 
 APP="UsageMeter.app"
-DMG="UsageMeter.dmg"
-VOL="UsageMeter"
+if [ -z "${VERSION:-}" ]; then
+  if git describe --tags --abbrev=0 >/dev/null 2>&1; then
+    VERSION="$(git describe --tags --abbrev=0 | sed 's/^v//')"
+  else
+    VERSION="0.1"
+  fi
+fi
+export VERSION
+DMG="${DMG_NAME:-UsageMeter-$VERSION.dmg}"
+LATEST_DMG="UsageMeter.dmg"
+VOL="UsageMeter $VERSION"
 
 # 先建置並組裝 .app(arm64、ad-hoc 簽章)
 ./package.sh
@@ -17,8 +26,14 @@ ln -s /Applications "$STAGE/Applications"      # 讓使用者拖曳安裝
 rm -f "$DMG"
 hdiutil create -volname "$VOL" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
 rm -rf "$STAGE"
+if [ "$DMG" != "$LATEST_DMG" ]; then
+  cp "$DMG" "$LATEST_DMG"
+fi
 
 echo "✓ 完成:$(pwd)/$DMG  ($(du -h "$DMG" | cut -f1))"
+if [ "$DMG" != "$LATEST_DMG" ]; then
+  echo "  也已更新:$(pwd)/$LATEST_DMG"
+fi
 echo
 echo "── 給對方的安裝說明 ──"
 echo "1. 打開 UsageMeter.dmg,把 UsageMeter 拖到 Applications。"

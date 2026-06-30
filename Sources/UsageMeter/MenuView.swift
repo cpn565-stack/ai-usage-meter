@@ -12,6 +12,7 @@ final class PanelViewController: NSViewController {
     private var cancellables = Set<AnyCancellable>()
 
     private let titleLabel = NSTextField(labelWithString: "")
+    private let statusLabel = NSTextField(labelWithString: "")
     private let timeLabel = NSTextField(labelWithString: "")
     private let refreshButton = NSButton()
     private let spinner = NSProgressIndicator()
@@ -35,6 +36,9 @@ final class PanelViewController: NSViewController {
 
         // ── Header:標題 + 時間 + 右上角重新整理 ──
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        statusLabel.font = .systemFont(ofSize: 10)
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.lineBreakMode = .byTruncatingTail
         timeLabel.font = .systemFont(ofSize: 10)
         timeLabel.textColor = .secondaryLabelColor
 
@@ -49,9 +53,15 @@ final class PanelViewController: NSViewController {
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
 
+        let titleCol = NSStackView(views: [titleLabel, statusLabel])
+        titleCol.orientation = .vertical
+        titleCol.spacing = 1
+        titleCol.alignment = .leading
+        titleCol.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
         let headerSpacer = NSView()
         headerSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let header = NSStackView(views: [titleLabel, headerSpacer, timeLabel, refreshButton, spinner])
+        let header = NSStackView(views: [titleCol, headerSpacer, timeLabel, refreshButton, spinner])
         header.orientation = .horizontal
         header.spacing = 6
         header.alignment = .centerY
@@ -124,6 +134,7 @@ final class PanelViewController: NSViewController {
         store.$results.sink { _ in refresh() }.store(in: &cancellables)
         store.$isRefreshing.sink { _ in refresh() }.store(in: &cancellables)
         store.$lastRefresh.sink { _ in refresh() }.store(in: &cancellables)
+        store.$lastSuccessfulRefresh.sink { _ in refresh() }.store(in: &cancellables)
         Prefs.shared.objectWillChange.sink { _ in refresh() }.store(in: &cancellables)
     }
 
@@ -138,12 +149,20 @@ final class PanelViewController: NSViewController {
         guard isViewLoaded else { return }
         titleLabel.stringValue = Loc.tr("app.title", lang)
         refreshButton.toolTip = Loc.tr("btn.refresh", lang)
+        statusLabel.stringValue = statusText()
+        statusLabel.toolTip = statusLabel.stringValue
 
         if let d = store.lastRefresh {
             let f = DateFormatter(); f.dateFormat = "HH:mm"
             timeLabel.stringValue = f.string(from: d)
         } else {
             timeLabel.stringValue = ""
+        }
+        if store.activeErrorCount > 0 {
+            timeLabel.stringValue = "\(store.activeErrorCount)!"
+            timeLabel.textColor = .systemOrange
+        } else {
+            timeLabel.textColor = .secondaryLabelColor
         }
         if store.isRefreshing {
             refreshButton.isHidden = true; spinner.isHidden = false; spinner.startAnimation(nil)
@@ -153,7 +172,8 @@ final class PanelViewController: NSViewController {
 
         // 重建各家用量列
         for v in providerStack.arrangedSubviews { providerStack.removeArrangedSubview(v); v.removeFromSuperview() }
-        for p in ProviderID.allCases {
+        var rowCount = 0
+        for p in ProviderID.allCases where Prefs.shared.isProviderEnabled(p) {
             let usage = store.results[p] ?? .empty(p)
             let shown = usage.buckets.filter { Prefs.shared.isOn(p.rawValue, $0.key, buckets: usage.buckets) }
             // 全取消勾選且無錯誤就整家隱藏
@@ -161,6 +181,12 @@ final class PanelViewController: NSViewController {
             let row = makeProviderRow(usage, shown: shown)
             providerStack.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: providerStack.widthAnchor).isActive = true
+            rowCount += 1
+        }
+        if rowCount == 0 {
+            let empty = makeLabel(Loc.tr("row.noProviders", lang), size: 11, color: .secondaryLabelColor)
+            providerStack.addArrangedSubview(empty)
+            empty.widthAnchor.constraint(equalTo: providerStack.widthAnchor).isActive = true
         }
 
         // 重建動作列
@@ -190,17 +216,25 @@ final class PanelViewController: NSViewController {
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         head.addArrangedSubview(spacer)
-        if let e = usage.error { head.addArrangedSubview(makeLabel(e, size: 10, color: .systemOrange)) }
 
         let col = NSStackView(views: [head])
         col.orientation = .vertical
         col.alignment = .leading
         col.spacing = 5
         head.widthAnchor.constraint(equalTo: col.widthAnchor).isActive = true
+        if let e = usage.error {
+            let err = makeLabel(e, size: 10, color: .systemOrange)
+            err.toolTip = e
+            err.maximumNumberOfLines = 2
+            err.lineBreakMode = .byWordWrapping
+            col.addArrangedSubview(err)
+            err.widthAnchor.constraint(equalTo: col.widthAnchor).isActive = true
+        }
 
         if shown.isEmpty {
-            col.addArrangedSubview(makeLabel(usage.error == nil ? Loc.tr("row.loading", lang) : "—",
-                                             size: 11, color: .secondaryLabelColor))
+            if usage.error == nil {
+                col.addArrangedSubview(makeLabel(Loc.tr("row.loading", lang), size: 11, color: .secondaryLabelColor))
+            }
         } else {
             for b in shown {
                 let row = makeBarRow(b)
@@ -245,6 +279,29 @@ final class PanelViewController: NSViewController {
         tf.textColor = color
         tf.lineBreakMode = .byTruncatingTail
         return tf
+    }
+
+    private func statusText() -> String {
+        if store.isRefreshing { return Loc.tr("status.refreshing", lang) }
+        let enabledCount = ProviderID.allCases.filter { Prefs.shared.isProviderEnabled($0) }.count
+        if enabledCount == 0 { return Loc.tr("status.noProviders", lang) }
+        if store.activeErrorCount > 0 {
+            return String(format: Loc.tr("status.errors", lang), store.activeErrorCount)
+        }
+        guard let last = store.lastSuccessfulRefresh ?? store.lastRefresh else {
+            return Loc.tr("foot.never", lang)
+        }
+        let updated = String(format: Loc.tr("status.updated", lang), shortTime(last))
+        if let next = store.nextRefresh {
+            return updated + " · " + String(format: Loc.tr("status.next", lang), shortTime(next))
+        }
+        return updated + " · " + Loc.tr("interval.manual", lang)
+    }
+
+    private func shortTime(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f.string(from: date)
     }
 
     private func makeBadge(_ s: String) -> NSView {

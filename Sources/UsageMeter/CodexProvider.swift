@@ -55,6 +55,7 @@ enum CodexProvider {
         let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         a.root["last_refresh"] = f.string(from: Date())
         let data = try JSONSerialization.data(withJSONObject: a.root, options: [])
+        try FileBackups.backupBeforeWrite(path: authPath, tag: "codex")
         try data.write(to: URL(fileURLWithPath: authPath), options: .atomic)
         return (at, a)
     }
@@ -85,9 +86,13 @@ enum CodexProvider {
         if code == 429 { throw ProviderError.rateLimited }
         if code == 401 { throw ProviderError.tokenExpired }
         guard code == 200 else { throw ProviderError.http(code) }
-        guard let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+        return try parseUsageResponse(body)
+    }
+
+    static func parseUsageResponse(_ data: Data) throws -> ProviderUsage {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let rl = obj["rate_limit"] as? [String: Any] else {
-            throw ProviderError.parse("usage 非預期格式")
+            throw ProviderError.apiChanged("Codex usage 回應缺少 rate_limit。")
         }
         func bucket(_ jsonKey: String, _ key: String, _ label: String) -> UsageBucket? {
             guard let w = rl[jsonKey] as? [String: Any], let p = w["used_percent"] as? Double else { return nil }
@@ -96,6 +101,9 @@ enum CodexProvider {
         }
         let buckets = [bucket("primary_window", "5h", "win.5h"),
                        bucket("secondary_window", "week", "win.week")].compactMap { $0 }
+        guard !buckets.isEmpty else {
+            throw ProviderError.apiChanged("Codex usage 回應缺少 primary_window / secondary_window。")
+        }
         return ProviderUsage(provider: .codex, buckets: buckets, plan: obj["plan_type"] as? String, error: nil, updatedAt: Date())
     }
 }

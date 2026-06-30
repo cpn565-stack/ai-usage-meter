@@ -19,6 +19,23 @@ if CommandLine.arguments.contains("--refresh-claude") {
     exit(0)
 }
 
+// `--diagnose`:只讀檢查本機憑證狀態,不打 API、不刷新、不寫回。
+if CommandLine.arguments.contains("--diagnose") || CommandLine.arguments.contains("--check") {
+    for line in Diagnostics.runReadOnly() { print(line) }
+    exit(0)
+}
+
+// `--self-test-parsers`:用固定 JSON 測三家 parser,不碰憑證、不連網。
+if CommandLine.arguments.contains("--self-test-parsers") {
+    do {
+        for line in try ParserSelfTests.run() { print(line) }
+        exit(0)
+    } catch {
+        print("✗ Parser self-test failed:", error.localizedDescription)
+        exit(1)
+    }
+}
+
 // `--once`:無頭模式,抓一次用量印出後結束(方便終端機驗證)。
 if CommandLine.arguments.contains("--once") {
     let sem = DispatchSemaphore(value: 0)

@@ -45,17 +45,30 @@ enum ProviderError: LocalizedError {
     case http(Int)
     case decrypt(String)
     case parse(String)
+    case apiChanged(String)
     case notImplemented
 
     var errorDescription: String? {
         switch self {
-        case .noCredentials(let s): return "找不到憑證:\(s)"
+        case .noCredentials(let s): return "找不到憑證或尚未授權:\(s)"
         case .rateLimited:          return "被限流 (429)"
         case .tokenExpired:         return "Token 過期"
         case .http(let c):          return "HTTP \(c)"
         case .decrypt(let s):       return "解密失敗:\(s)"
         case .parse(let s):         return "解析失敗:\(s)"
+        case .apiChanged(let s):    return "API 格式可能已改變:\(s)"
         case .notImplemented:       return "尚未接入"
+        }
+    }
+
+    var maintenanceHint: String? {
+        switch self {
+        case .apiChanged(let s):
+            return s
+        case .http(let c) where [404, 410, 422].contains(c):
+            return "endpoint 回傳 HTTP \(c)。"
+        default:
+            return nil
         }
     }
 }

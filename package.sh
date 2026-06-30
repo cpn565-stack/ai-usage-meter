@@ -6,8 +6,18 @@ cd "$(dirname "$0")"
 
 SCRATCH="$HOME/Library/Caches/usagemeter-build"
 APP="UsageMeter.app"
+if [ -z "${VERSION:-}" ]; then
+  if git describe --tags --abbrev=0 >/dev/null 2>&1; then
+    VERSION="$(git describe --tags --abbrev=0 | sed 's/^v//')"
+  else
+    VERSION="0.1"
+  fi
+fi
+if [ -z "${BUILD_NUMBER:-}" ]; then
+  BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
+fi
 
-echo "▶ 建置 (release)…"
+echo "▶ 建置 (release, version $VERSION build $BUILD_NUMBER)…"
 swift build -c release --scratch-path "$SCRATCH"
 BIN="$SCRATCH/release/UsageMeter"
 
@@ -15,6 +25,10 @@ echo "▶ 組裝 $APP …"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp "$BIN" "$APP/Contents/MacOS/UsageMeter"
+if [ -f "Assets/AppIcon.icns" ]; then
+  mkdir -p "$APP/Contents/Resources"
+  cp "Assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+fi
 
 # strip 符號(在簽章前做;簽章會封存二進位,事後改動會失效)。約砍一半體積。
 strip -rSTx "$APP/Contents/MacOS/UsageMeter"
@@ -27,14 +41,17 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key><string>UsageMeter</string>
   <key>CFBundleIdentifier</key><string>com.mike.usagemeter</string>
   <key>CFBundleName</key><string>UsageMeter</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>__VERSION__</string>
+  <key>CFBundleVersion</key><string>__BUILD_NUMBER__</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>LSUIElement</key><true/>
 </dict>
 </plist>
 PLIST
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Contents/Info.plist"
 
 # 優先用穩定自簽身分(讓 keychain「永遠允許」跨版本記住);沒有就退回 ad-hoc。
 SIGN_ID="UsageMeter Self-Signed"

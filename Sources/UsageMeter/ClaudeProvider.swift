@@ -98,6 +98,7 @@ enum ClaudeProvider {
         }
         s.cfg[s.cacheKey] = encB64
         let cfgData = try JSONSerialization.data(withJSONObject: s.cfg, options: [])
+        try FileBackups.backupBeforeWrite(path: configPath, tag: "claude")
         try cfgData.write(to: URL(fileURLWithPath: configPath), options: .atomic)
         return (at, s)
     }
@@ -129,8 +130,12 @@ enum ClaudeProvider {
         if code == 429 { throw ProviderError.rateLimited }
         if code == 401 { throw ProviderError.tokenExpired }
         guard code == 200 else { throw ProviderError.http(code) }
+        return try parseUsageResponse(data, tokenCache: store.tokenCache)
+    }
+
+    static func parseUsageResponse(_ data: Data, tokenCache: [String: Any]) throws -> ProviderUsage {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw ProviderError.parse("usage 非 JSON")
+            throw ProviderError.apiChanged("Claude /api/oauth/usage 回應不是 JSON。")
         }
         // (jsonKey, bucketKey, label, defaultOn)
         let cats: [(String, String, String, Bool)] = [
@@ -147,11 +152,14 @@ enum ClaudeProvider {
             buckets.append(UsageBucket(key: key, label: label, usedPercent: u,
                                        resetsAt: Date.fromISO(w["resets_at"] as? String), defaultOn: on))
         }
-        return ProviderUsage(provider: .claude, buckets: buckets, plan: friendlyPlan(store.tokenCache), error: nil, updatedAt: Date())
+        guard !buckets.isEmpty else {
+            throw ProviderError.apiChanged("Claude usage 回應缺少已知 quota 欄位。")
+        }
+        return ProviderUsage(provider: .claude, buckets: buckets, plan: parsePlan(tokenCache: tokenCache), error: nil, updatedAt: Date())
     }
 
     /// 掃描所有 token 組,取最高方案名(claude_code 那組可能是較低的 claude_ai/pro,但帳號其實是 Max)。
-    private static func friendlyPlan(_ tc: [String: Any]) -> String? {
+    static func parsePlan(tokenCache tc: [String: Any]) -> String? {
         var tiers: [String] = [], subs: [String] = []
         for (_, v) in tc {
             guard let d = v as? [String: Any] else { continue }

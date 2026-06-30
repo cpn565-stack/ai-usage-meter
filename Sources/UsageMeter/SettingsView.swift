@@ -71,15 +71,24 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
                                   action: #selector(intervalChanged))
         let launch = NSButton(checkboxWithTitle: Loc.tr("set.launch", lang), target: self, action: #selector(launchToggled))
         launch.state = LoginItem.isEnabled ? .on : .off
+        let providerChecks = ProviderID.allCases.map { p in
+            let cb = NSButton(checkboxWithTitle: p.displayName, target: self, action: #selector(providerToggled))
+            cb.state = Prefs.shared.isProviderEnabled(p) ? .on : .off
+            cb.identifier = NSUserInterfaceItemIdentifier(p.rawValue)
+            return cb
+        }
         addSection(Loc.tr("set.general", lang), rows: [
             labeledRow(Loc.tr("set.language", lang), langPopup),
             labeledRow(Loc.tr("set.interval", lang), intervalPopup),
             launch,
+            labeledRow(Loc.tr("set.version", lang), makeLabel(appVersion(), size: 13, color: .secondaryLabelColor)),
         ])
+        addSection(Loc.tr("set.providers", lang), rows: providerChecks)
 
         // ── 選單列顯示 ──
-        let provOpts = ["all"] + ProviderID.allCases.map { $0.rawValue }
-        let provTitles = [Loc.tr("menu.all", lang)] + ProviderID.allCases.map { $0.displayName }
+        let providers = ProviderID.allCases.filter { Prefs.shared.isProviderEnabled($0) }
+        let provOpts = ["all"] + providers.map { $0.rawValue }
+        let provTitles = [Loc.tr("menu.all", lang)] + providers.map { $0.displayName }
         let provPopup = popup(provTitles,
                               selected: provOpts.firstIndex(of: Prefs.shared.menuProvider) ?? 0,
                               action: #selector(menuProviderChanged))
@@ -99,7 +108,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         for p in ProviderID.allCases {
             let all = store.results[p]?.buckets ?? []
             displayRows.append(makeLabel(p.displayName, size: 12, weight: .semibold))
-            if all.isEmpty {
+            if !Prefs.shared.isProviderEnabled(p) {
+                displayRows.append(makeLabel(Loc.tr("row.disabled", lang), size: 11, color: .secondaryLabelColor))
+            } else if all.isEmpty {
                 displayRows.append(makeLabel(Loc.tr("row.loading", lang), size: 11, color: .secondaryLabelColor))
             } else {
                 for b in all {
@@ -159,6 +170,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         return tf
     }
 
+    private func appVersion() -> String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "dev"
+        let build = info?["CFBundleVersion"] as? String ?? "-"
+        return "\(version) (\(build))"
+    }
+
     // MARK: - Actions
 
     @objc private func languageChanged(_ sender: NSPopUpButton) {
@@ -170,8 +188,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     @objc private func launchToggled(_ sender: NSButton) {
         LoginItem.set(sender.state == .on)
     }
+    @objc private func providerToggled(_ sender: NSButton) {
+        guard let raw = sender.identifier?.rawValue, let p = ProviderID(rawValue: raw) else { return }
+        Prefs.shared.setProvider(p, enabled: sender.state == .on)
+        if sender.state == .on {
+            Task { await store.refresh(p) }
+        }
+    }
     @objc private func menuProviderChanged(_ sender: NSPopUpButton) {
-        let opts = ["all"] + ProviderID.allCases.map { $0.rawValue }
+        let opts = ["all"] + ProviderID.allCases.filter { Prefs.shared.isProviderEnabled($0) }.map { $0.rawValue }
         Prefs.shared.menuProvider = opts[sender.indexOfSelectedItem]
         Prefs.shared.menuBucketKey = ""
     }

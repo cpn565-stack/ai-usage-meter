@@ -114,15 +114,30 @@ enum GeminiProvider {
             (code, body) = try await callModels()
         }
         if code == 429 { throw ProviderError.rateLimited }
-        guard code == 200, let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-              let models = obj["models"] as? [String: Any] else {
-            throw ProviderError.http(code)
-        }
+        guard code == 200 else { throw ProviderError.http(code) }
+        return try parseModelsResponse(body)
+    }
 
+    static func parseModelsResponse(_ data: Data) throws -> ProviderUsage {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let models = obj["models"] as? [String: Any] else {
+            throw ProviderError.apiChanged("Gemini fetchAvailableModels 回應缺少 models。")
+        }
         // 每個「使用者可見模型」(有 displayName + quotaInfo)各一個 bucket;依 displayName 去重。
         var buckets: [UsageBucket] = []
         var seenLabels = Set<String>()
-        for (modelId, raw) in models {
+        let sortedModels = models.sorted { lhs, rhs in
+            let li = lhs.value as? [String: Any]
+            let ri = rhs.value as? [String: Any]
+            let ln = li?["displayName"] as? String ?? lhs.key
+            let rn = ri?["displayName"] as? String ?? rhs.key
+            if ln != rn { return ln < rn }
+            let lr = li?["recommended"] as? Bool ?? false
+            let rr = ri?["recommended"] as? Bool ?? false
+            if lr != rr { return lr && !rr }
+            return lhs.key < rhs.key
+        }
+        for (modelId, raw) in sortedModels {
             guard let info = raw as? [String: Any],
                   let displayName = info["displayName"] as? String, !displayName.isEmpty,
                   let q = info["quotaInfo"] as? [String: Any] else { continue }
@@ -135,7 +150,7 @@ enum GeminiProvider {
             buckets.append(UsageBucket(key: modelId, label: displayName, usedPercent: used,
                                        resetsAt: reset, defaultOn: recommended))
         }
-        if buckets.isEmpty { throw ProviderError.parse("無 Gemini 模型額度資料") }
+        if buckets.isEmpty { throw ProviderError.apiChanged("Gemini 模型清單沒有 quotaInfo。") }
         // 依顯示名排序,讓清單穩定。
         buckets.sort { $0.label < $1.label }
         return ProviderUsage(provider: .gemini, buckets: buckets, plan: "Antigravity", error: nil, updatedAt: Date())

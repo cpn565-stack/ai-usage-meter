@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var popover: NSPopover!
     private var panel: PanelViewController!
     private var settingsWC: SettingsWindowController?
+    private var localMouseMonitor: Any?
+    private var globalMouseMonitor: Any?
     private var cancellables = Set<AnyCancellable>()
 
     // main.swift 頂層(nonisolated)要能建立本物件;@MainActor 物件改在啟動時才建。
@@ -34,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.behavior = .transient
         popover.animates = false
         popover.contentViewController = panel
+        installPopoverDismissMonitors()
 
         // 選單列文字:用量或偏好(選單來源/語言)改變時更新。
         store.$results
@@ -45,6 +48,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateTitle()
     }
 
+    func applicationDidResignActive(_ notification: Notification) {
+        closePopover()
+    }
+
     private func updateTitle() {
         statusItem?.button?.title = " " + store.menuBarText
     }
@@ -52,15 +59,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func togglePopover() {
         guard let button = statusItem.button else { return }
         if popover.isShown {
-            popover.performClose(nil)
+            closePopover()
         } else {
             Task { await store.refreshIfStale(60) }   // 打開時資料過舊就重抓
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         }
     }
 
-    private func openSettings() {
+    private func installPopoverDismissMonitors() {
+        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            Task { @MainActor in self?.closePopoverIfEventIsOutside(event) }
+            return event
+        }
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
+            Task { @MainActor in self?.closePopover() }
+        }
+    }
+
+    private func closePopoverIfEventIsOutside(_ event: NSEvent) {
+        guard popover?.isShown == true else { return }
+        if let popoverWindow = popover.contentViewController?.view.window,
+           event.window === popoverWindow { return }
+        if let statusWindow = statusItem.button?.window,
+           event.window === statusWindow { return }
+        closePopover()
+    }
+
+    private func closePopover() {
+        guard popover?.isShown == true else { return }
         popover.performClose(nil)
+    }
+
+    private func openSettings() {
+        closePopover()
         if settingsWC == nil { settingsWC = SettingsWindowController(store: store) }
         settingsWC?.showWindow(nil)
         settingsWC?.window?.center()

@@ -16,10 +16,12 @@ final class UsageStore: ObservableObject {
     @Published var results: [ProviderID: ProviderUsage] = [:]
     @Published var isRefreshing = false
     @Published var lastRefresh: Date?
+    @Published var lastSuccessfulRefresh: Date?
 
     private var timer: Timer?
     private var backoffUntil: [ProviderID: Date] = [:]
     private var backoffStep: [ProviderID: TimeInterval] = [:]
+    private var inFlightProviders = Set<ProviderID>()
     private var cancellables = Set<AnyCancellable>()
 
     init() {
@@ -56,16 +58,31 @@ final class UsageStore: ObservableObject {
     }
 
     func refreshAll() async {
+        if isRefreshing { return }
         isRefreshing = true
-        for p in ProviderID.allCases { await refresh(p) }
+        for p in ProviderID.allCases {
+            if Prefs.shared.isProviderEnabled(p) {
+                await refresh(p)
+            } else {
+                results[p] = .empty(p)
+                backoffStep[p] = nil
+                backoffUntil[p] = nil
+            }
+        }
         isRefreshing = false
         lastRefresh = Date()
     }
 
     func refresh(_ p: ProviderID) async {
+        guard Prefs.shared.isProviderEnabled(p) else { return }
+        if inFlightProviders.contains(p) { return }
+        inFlightProviders.insert(p)
+        defer { inFlightProviders.remove(p) }
+
         if let until = backoffUntil[p], Date() < until { return }   // 退避期間略過
         do {
             results[p] = try await fetchProvider(p)
+            lastSuccessfulRefresh = Date()
             backoffStep[p] = nil
             backoffUntil[p] = nil
         } catch let e as ProviderError {
@@ -74,6 +91,7 @@ final class UsageStore: ObservableObject {
                 backoffStep[p] = step
                 backoffUntil[p] = Date().addingTimeInterval(step)
             }
+            MaintenanceNotifier.notifyIfNeeded(provider: p, error: e)
             var cur = results[p] ?? .empty(p)
             cur.error = e.errorDescription
             cur.updatedAt = Date()
@@ -88,6 +106,7 @@ final class UsageStore: ObservableObject {
 
     /// 該家目前啟用(勾選)的 bucket。
     func enabledBuckets(_ p: ProviderID) -> [UsageBucket] {
+        guard Prefs.shared.isProviderEnabled(p) else { return [] }
         let all = results[p]?.buckets ?? []
         let on = Prefs.shared.effectiveEnabled(p.rawValue, buckets: all)
         return all.filter { on.contains($0.key) }
@@ -105,9 +124,25 @@ final class UsageStore: ObservableObject {
                 pct = bs.map { $0.usedPercent }.max()
             }
         } else {   // "all"
-            pct = ProviderID.allCases.flatMap { enabledBuckets($0) }.map { $0.usedPercent }.max()
+            pct = ProviderID.allCases
+                .filter { Prefs.shared.isProviderEnabled($0) }
+                .flatMap { enabledBuckets($0) }
+                .map { $0.usedPercent }
+                .max()
         }
         if let pct { return "\(Int(pct.rounded()))%" }
         return "—"
+    }
+
+    var nextRefresh: Date? {
+        guard let secs = Prefs.shared.pollInterval.seconds, let last = lastRefresh else { return nil }
+        return last.addingTimeInterval(secs)
+    }
+
+    var activeErrorCount: Int {
+        ProviderID.allCases
+            .filter { Prefs.shared.isProviderEnabled($0) }
+            .filter { results[$0]?.error != nil }
+            .count
     }
 }

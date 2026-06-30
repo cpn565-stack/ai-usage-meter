@@ -40,6 +40,10 @@ final class Prefs: ObservableObject {
     @Published var menuBucketKey: String {
         didSet { d.set(menuBucketKey, forKey: "menuBucketKey") }
     }
+    /// 暫停讀取的 provider rawValue 清單。
+    @Published private var disabledProviders: [String] {
+        didSet { d.set(disabledProviders, forKey: "disabledProviders") }
+    }
     /// 各家要顯示的 bucket key 清單(nil/未設 = 用各 bucket 的 defaultOn)。
     @Published private var enabled: [String: [String]] {
         didSet {
@@ -54,11 +58,26 @@ final class Prefs: ObservableObject {
         pollInterval = PollInterval(rawValue: d.string(forKey: "pollInterval") ?? "") ?? .tenMin
         menuProvider = d.string(forKey: "menuProvider") ?? "all"
         menuBucketKey = d.string(forKey: "menuBucketKey") ?? ""
+        disabledProviders = d.stringArray(forKey: "disabledProviders") ?? []
         if let data = d.data(forKey: "enabledBuckets"),
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String]] {
             enabled = obj
         } else {
             enabled = [:]
+        }
+    }
+
+    func isProviderEnabled(_ provider: ProviderID) -> Bool {
+        !disabledProviders.contains(provider.rawValue)
+    }
+
+    func setProvider(_ provider: ProviderID, enabled isEnabled: Bool) {
+        var set = Set(disabledProviders)
+        if isEnabled { set.remove(provider.rawValue) } else { set.insert(provider.rawValue) }
+        disabledProviders = Array(set).sorted()
+        if !isEnabled, menuProvider == provider.rawValue {
+            menuProvider = "all"
+            menuBucketKey = ""
         }
     }
 
