@@ -17,4 +17,45 @@ enum Keychain {
         guard status == errSecSuccess, let data = item as? Data else { return nil }
         return data
     }
+
+    static func setGenericPassword(_ data: Data, service: String, account: String) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        let attrs: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+        ]
+
+        var add = query
+        attrs.forEach { add[$0.key] = $0.value }
+        let status = SecItemAdd(add as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            let updateStatus = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
+            guard updateStatus == errSecSuccess else { throw KeychainError.unexpectedStatus(updateStatus) }
+            return
+        }
+        guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
+    }
+
+    static func deleteGenericPassword(service: String, account: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+}
+
+enum KeychainError: LocalizedError {
+    case unexpectedStatus(OSStatus)
+
+    var errorDescription: String? {
+        switch self {
+        case .unexpectedStatus(let status): return "Keychain status \(status)"
+        }
+    }
 }

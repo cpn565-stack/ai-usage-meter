@@ -12,17 +12,64 @@ enum GeminiProvider {
     static let userAgent = "antigravity/windows/amd64"
     static let keychainService = "gemini"
     static let keychainAccount = "antigravity"
+    static let cacheKeychainService = "com.mike.usagemeter.gemini"
+    static let cacheKeychainAccount = "antigravity"
 
     struct Creds { var accessToken: String; var refreshToken: String?; var expiry: Date? }
+    private struct CachedCreds: Codable { var accessToken: String; var refreshToken: String?; var expiry: String? }
 
     private static var cachedCreds: Creds?     // 記憶體快取,避免重複讀 keychain
     private static var cachedProjectID: String?
 
-    /// 讀 keychain(會觸發權限詢問)。只在沒快取或刷新失敗時呼叫。
+    /// 讀 Antigravity 的 keychain(會觸發權限詢問)。診斷用;一般流程請走 loadCreds()。
     static func loadCredsFromKeychain() throws -> Creds {
-        guard let data = Keychain.genericPassword(service: keychainService, account: keychainAccount),
-              var str = String(data: data, encoding: .utf8) else {
+        guard let data = Keychain.genericPassword(service: keychainService, account: keychainAccount) else {
             throw ProviderError.noCredentials("Keychain『gemini/antigravity』(需允許存取)")
+        }
+        return try decodeAntigravityCreds(data)
+    }
+
+    private static func loadCreds() throws -> Creds {
+        if let creds = loadCredsFromCache() { return creds }
+        let creds = try loadCredsFromKeychain()
+        saveCredsToCache(creds)
+        return creds
+    }
+
+    private static func loadCredsFromCache() -> Creds? {
+        guard let data = Keychain.genericPassword(service: cacheKeychainService, account: cacheKeychainAccount) else {
+            return nil
+        }
+        do {
+            let cached = try JSONDecoder().decode(CachedCreds.self, from: data)
+            guard !cached.accessToken.isEmpty else { throw ProviderError.parse("UsageMeter Gemini cache 缺少 access token") }
+            return Creds(accessToken: cached.accessToken,
+                         refreshToken: cached.refreshToken,
+                         expiry: Date.fromISO(cached.expiry))
+        } catch {
+            Keychain.deleteGenericPassword(service: cacheKeychainService, account: cacheKeychainAccount)
+            return nil
+        }
+    }
+
+    private static func saveCredsToCache(_ creds: Creds) {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let cached = CachedCreds(accessToken: creds.accessToken,
+                                 refreshToken: creds.refreshToken,
+                                 expiry: creds.expiry.map { f.string(from: $0) })
+        guard let data = try? JSONEncoder().encode(cached) else { return }
+        try? Keychain.setGenericPassword(data, service: cacheKeychainService, account: cacheKeychainAccount)
+    }
+
+    private static func invalidateCredsCache() {
+        cachedCreds = nil
+        Keychain.deleteGenericPassword(service: cacheKeychainService, account: cacheKeychainAccount)
+    }
+
+    private static func decodeAntigravityCreds(_ data: Data) throws -> Creds {
+        guard var str = String(data: data, encoding: .utf8) else {
+            throw ProviderError.parse("Antigravity 憑證不是 UTF-8")
         }
         let prefix = "go-keyring-base64:"
         if str.hasPrefix(prefix) { str.removeFirst(prefix.count) }
@@ -58,7 +105,7 @@ enum GeminiProvider {
     /// Keychain 只在「沒有任何快取(首次)」或「refresh token 確定失效(invalid_grant)」時才讀,
     /// 暫時性錯誤(如剛睡醒網路未就緒)一律不碰 keychain,以免重複跳權限詢問。
     static func ensureCreds(forceRefresh: Bool = false) async throws -> Creds {
-        if cachedCreds == nil { cachedCreds = try loadCredsFromKeychain() }   // 僅首次
+        if cachedCreds == nil { cachedCreds = try loadCreds() }   // 僅首次
         var creds = cachedCreds!
         let needRefresh = forceRefresh || (creds.expiry.map { $0 <= Date().addingTimeInterval(60) } ?? true)
         guard needRefresh, let rt = creds.refreshToken else { return creds }
@@ -66,14 +113,18 @@ enum GeminiProvider {
             let (at, exp) = try await refresh(rt)
             creds.accessToken = at; creds.expiry = exp
             cachedCreds = creds
+            saveCredsToCache(creds)
             return creds
         } catch ProviderError.http(let code) where code == 400 || code == 401 {
-            // refresh token 失效 → 重讀 keychain 取 Antigravity 最新,再試一次
+            // refresh token 失效 → 丟掉自家快取,重讀 Antigravity 最新 token,再試一次
+            invalidateCredsCache()
             cachedCreds = try loadCredsFromKeychain()
+            saveCredsToCache(cachedCreds!)
             creds = cachedCreds!
             if let rt2 = creds.refreshToken {
                 let (at, exp) = try await refresh(rt2)
                 creds.accessToken = at; creds.expiry = exp; cachedCreds = creds
+                saveCredsToCache(creds)
             }
             return creds
         }
