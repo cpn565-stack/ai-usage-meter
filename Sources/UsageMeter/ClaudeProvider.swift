@@ -137,6 +137,28 @@ enum ClaudeProvider {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ProviderError.apiChanged("Claude /api/oauth/usage 回應不是 JSON。")
         }
+        var buckets = parseLimitBuckets(obj)
+
+        let legacyBuckets = parseLegacyBuckets(obj)
+        if buckets.isEmpty {
+            buckets = legacyBuckets
+        } else {
+            var seenKeys = Set(buckets.map(\.key))
+            var seenLabels = Set(buckets.map { $0.label.lowercased() })
+            for bucket in legacyBuckets where !seenKeys.contains(bucket.key) && !seenLabels.contains(bucket.label.lowercased()) {
+                buckets.append(bucket)
+                seenKeys.insert(bucket.key)
+                seenLabels.insert(bucket.label.lowercased())
+            }
+        }
+
+        guard !buckets.isEmpty else {
+            throw ProviderError.apiChanged("Claude usage 回應缺少已知 quota 欄位。")
+        }
+        return ProviderUsage(provider: .claude, buckets: buckets, plan: parsePlan(tokenCache: tokenCache), error: nil, updatedAt: Date())
+    }
+
+    private static func parseLegacyBuckets(_ obj: [String: Any]) -> [UsageBucket] {
         // (jsonKey, bucketKey, label, defaultOn)
         let cats: [(String, String, String, Bool)] = [
             ("five_hour",          "5h",     "win.5h",   true),
@@ -152,10 +174,73 @@ enum ClaudeProvider {
             buckets.append(UsageBucket(key: key, label: label, usedPercent: u,
                                        resetsAt: Date.fromISO(w["resets_at"] as? String), defaultOn: on))
         }
-        guard !buckets.isEmpty else {
-            throw ProviderError.apiChanged("Claude usage 回應缺少已知 quota 欄位。")
+        return buckets
+    }
+
+    private static func parseLimitBuckets(_ obj: [String: Any]) -> [UsageBucket] {
+        guard let limits = obj["limits"] as? [[String: Any]] else { return [] }
+        return limits.compactMap(limitBucket)
+    }
+
+    private static func limitBucket(_ limit: [String: Any]) -> UsageBucket? {
+        guard let percent = number(limit["percent"]) else { return nil }
+        let kind = limit["kind"] as? String ?? limit["group"] as? String ?? "limit"
+        let reset = Date.fromISO(limit["resets_at"] as? String)
+
+        switch kind {
+        case "session":
+            return UsageBucket(key: "5h", label: "win.5h", usedPercent: percent, resetsAt: reset)
+        case "weekly_all":
+            return UsageBucket(key: "week", label: "win.week", usedPercent: percent, resetsAt: reset)
+        case "weekly_scoped":
+            let scoped = scopedLimitIdentity(limit["scope"])
+            return UsageBucket(key: "weekly.\(scoped.key)", label: scoped.label,
+                               usedPercent: percent, resetsAt: reset, defaultOn: true)
+        default:
+            let label = titleFromIdentifier(kind)
+            return UsageBucket(key: stableKeyPart(kind), label: label,
+                               usedPercent: percent, resetsAt: reset, defaultOn: false)
         }
-        return ProviderUsage(provider: .claude, buckets: buckets, plan: parsePlan(tokenCache: tokenCache), error: nil, updatedAt: Date())
+    }
+
+    private static func scopedLimitIdentity(_ scopeValue: Any?) -> (key: String, label: String) {
+        guard let scope = scopeValue as? [String: Any] else { return ("scoped", "Scoped") }
+        for scopeKey in ["model", "surface"] {
+            guard let item = scope[scopeKey] as? [String: Any] else { continue }
+            let id = (item["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = (item["display_name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = [name, id].compactMap { $0 }.first { !$0.isEmpty }
+            if let label {
+                return (stableKeyPart(id?.isEmpty == false ? id! : label), label)
+            }
+        }
+        return ("scoped", "Scoped")
+    }
+
+    private static func number(_ value: Any?) -> Double? {
+        if let n = value as? Double { return n }
+        if let n = value as? Int { return Double(n) }
+        if let n = value as? NSNumber { return n.doubleValue }
+        return nil
+    }
+
+    private static func stableKeyPart(_ value: String) -> String {
+        var out = ""
+        for scalar in value.lowercased().unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) {
+                out.append(Character(scalar))
+            } else if !out.hasSuffix("-") {
+                out.append("-")
+            }
+        }
+        let trimmed = out.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return trimmed.isEmpty ? "unknown" : trimmed
+    }
+
+    private static func titleFromIdentifier(_ value: String) -> String {
+        value.split(separator: "_")
+            .map { part in part.prefix(1).uppercased() + part.dropFirst() }
+            .joined(separator: " ")
     }
 
     /// 掃描所有 token 組,取最高方案名(claude_code 那組可能是較低的 claude_ai/pro,但帳號其實是 Max)。

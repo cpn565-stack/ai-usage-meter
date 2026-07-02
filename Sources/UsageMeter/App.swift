@@ -33,6 +33,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         panel = PanelViewController(store: store, openSettings: { [weak self] in self?.openSettings() })
+        panel.contentSizeDidChange = { [weak self] size in
+            guard let self else { return }
+            self.popover.contentSize = size
+            self.popover.contentViewController?.view.window?.setContentSize(size)
+        }
         popover.behavior = .transient
         popover.animates = false
         popover.contentViewController = panel

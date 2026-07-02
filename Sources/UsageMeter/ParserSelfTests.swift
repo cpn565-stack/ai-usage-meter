@@ -8,11 +8,13 @@ enum ParserSelfTests {
 
     static func run() throws -> [String] {
         try testClaudeUsageParsing()
+        try testClaudeLimitsListParsing()
         try testCodexUsageParsing()
         try testGeminiModelsParsing()
         try testUnexpectedShapeIsApiChanged()
         return [
             "✓ Claude parser fixture",
+            "✓ Claude limits list fixture",
             "✓ Codex parser fixture",
             "✓ Gemini parser fixture",
             "✓ Unexpected shape reports API change",
@@ -35,6 +37,47 @@ enum ParserSelfTests {
         try expect(usage.buckets.count == 2, "Claude bucket count mismatch")
         try expect(usage.buckets.first?.key == "5h", "Claude first bucket mismatch")
         try expect(Int(usage.buckets.first?.usedPercent ?? 0) == 42, "Claude percent mismatch")
+    }
+
+    private static func testClaudeLimitsListParsing() throws {
+        let data = Data("""
+        {
+          "limits": [
+            {
+              "kind": "session",
+              "group": "session",
+              "percent": 16,
+              "resets_at": "2026-07-02T04:30:00.262392+00:00",
+              "scope": null
+            },
+            {
+              "kind": "weekly_all",
+              "group": "weekly",
+              "percent": 2,
+              "resets_at": "2026-07-03T10:00:00.262416+00:00",
+              "scope": null
+            },
+            {
+              "kind": "weekly_scoped",
+              "group": "weekly",
+              "percent": 3,
+              "resets_at": "2026-07-03T10:00:00.262741+00:00",
+              "scope": {
+                "model": {"display_name": "Fable", "id": null},
+                "surface": null
+              }
+            }
+          ],
+          "five_hour": {"utilization": 99, "resets_at": "2026-07-02T04:30:00Z"},
+          "seven_day": {"utilization": 88, "resets_at": "2026-07-03T10:00:00Z"}
+        }
+        """.utf8)
+        let usage = try ClaudeProvider.parseUsageResponse(data, tokenCache: [:])
+
+        try expect(usage.buckets.map(\.key) == ["5h", "week", "weekly.fable"], "Claude limits keys mismatch")
+        try expect(usage.buckets.map(\.label) == ["win.5h", "win.week", "Fable"], "Claude limits labels mismatch")
+        try expect(Int(usage.buckets[2].usedPercent) == 3, "Claude Fable percent mismatch")
+        try expect(usage.buckets[2].defaultOn, "Claude Fable should default on")
     }
 
     private static func testCodexUsageParsing() throws {

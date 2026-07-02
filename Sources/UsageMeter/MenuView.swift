@@ -20,6 +20,7 @@ final class PanelViewController: NSViewController {
     private let scrollView = NSScrollView()
     private var scrollHeight: NSLayoutConstraint!
     private let footerStack = NSStackView()
+    var contentSizeDidChange: ((NSSize) -> Void)?
 
     private var lang: AppLanguage { Prefs.shared.language }
 
@@ -198,10 +199,17 @@ final class PanelViewController: NSViewController {
             r.widthAnchor.constraint(equalTo: footerStack.widthAnchor).isActive = true
         }
 
+        updateContentSize()
+    }
+
+    private func updateContentSize() {
         view.layoutSubtreeIfNeeded()
         scrollHeight.constant = min(max(providerStack.fittingSize.height, 1), listMaxHeight)
         view.layoutSubtreeIfNeeded()
-        preferredContentSize = NSSize(width: panelWidth, height: view.fittingSize.height)
+
+        let size = NSSize(width: panelWidth, height: ceil(view.fittingSize.height))
+        preferredContentSize = size
+        contentSizeDidChange?(size)
     }
 
     // MARK: - Row builders

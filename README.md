@@ -10,7 +10,7 @@ Built with native AppKit (`NSStatusItem` + `NSPopover`). No Dock icon, no backgr
 
 - **Three providers in one place** — Claude, Codex, and Gemini side by side.
 - **Official numbers** — polls each vendor's real usage API (not a local token estimate).
-- **Per‑bucket detail** — 5h / weekly windows, plus Claude sub‑limits (Opus, Sonnet, Design, Cowork) and every Gemini model quota.
+- **Per‑bucket detail** — 5h / weekly windows, Claude scoped model/surface limits, and every Gemini model quota.
 - **Menu‑bar percentage** — pick "all (max)" or a specific provider/window to show in the bar.
 - **Auto token refresh** — transparently refreshes expiring OAuth tokens and writes them back so the official apps stay in sync.
 - **Configurable** — polling interval (10 min / 30 min / manual), launch at login, which items to show, and UI language (繁體中文 / 日本語 / English).
