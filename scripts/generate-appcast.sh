@@ -7,6 +7,7 @@
 # 環境變數:
 #   SPARKLE_PRIVATE_KEY_FILE  私鑰檔(預設 secrets/sparkle_ed_private.key)
 #   APPCAST_OUT               輸出路徑(預設 appcast/appcast.xml)
+#   REQUIRE_ED_SIGNATURE=1    無法產生 EdDSA 簽章時直接失敗(CI 用)
 #   DOWNLOAD_BASE_URL         enclosure 下載前綴
 #                             預設 https://github.com/cpn565-stack/ai-usage-meter/releases/download/v$VERSION
 set -euo pipefail
@@ -120,6 +121,11 @@ XML
 echo "✓ 寫入 $OUT"
 if [ -z "$ED_SIG" ]; then
   echo "⚠ 缺少 EdDSA 簽章 — 確認 Keychain 有 Sparkle key 或 secrets/sparkle_ed_private.key"
+  if [ "${REQUIRE_ED_SIGNATURE:-0}" = "1" ]; then
+    # CI 設 REQUIRE_ED_SIGNATURE=1:未簽章的 appcast 會被已裝機用戶拒絕,寧可 fail
+    echo "✗ REQUIRE_ED_SIGNATURE=1 — 拒絕輸出未簽章 appcast" >&2
+    exit 1
+  fi
 else
   echo "  edSignature: ${ED_SIG:0:16}…"
 fi

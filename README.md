@@ -107,8 +107,8 @@ swift run UsageMeter --once       # live fetch printout
 
 ## Contributing / public roadmap
 
-1. ✅ Sparkle integration + appcast pipeline (draft)  
-2. ⬜ Set `SPARKLE_PRIVATE_KEY` on Actions; ship signed appcast on each tag  
+1. ✅ Sparkle integration + appcast pipeline  
+2. ✅ `SPARKLE_PRIVATE_KEY` on Actions; signed appcast enforced on each tag (CI fails if unsigned)  
 3. ⬜ Apple Developer ID + notarization secrets (see `docs/DISTRIBUTION.md`)  
 4. ⬜ README screenshots  
 5. ⬜ Optional universal binary  
