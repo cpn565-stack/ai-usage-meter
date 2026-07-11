@@ -35,22 +35,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel = PanelViewController(store: store, openSettings: { [weak self] in self?.openSettings() })
         panel.contentSizeDidChange = { [weak self] size in
             guard let self else { return }
-            // 同時更新 popover / window / view frame,否則內容變矮時高度不會縮。
+            // 只改 popover.contentSize;手動 setFrame 會裁切 header / 右側。
             self.popover.contentSize = size
-            if let win = self.popover.contentViewController?.view.window {
-                var frame = win.frame
-                let oldH = frame.height
-                let newH = size.height
-                // 從上緣錨定(popover 貼在 status item 下方),往下縮/長。
-                frame.origin.y += (oldH - newH)
-                frame.size.height = newH
-                frame.size.width = size.width
-                win.setFrame(frame, display: true)
-            }
-            self.panel.view.setFrameSize(size)
         }
         popover.behavior = .transient
         popover.animates = false
+        popover.contentSize = NSSize(width: 320, height: 200)
         popover.contentViewController = panel
         installPopoverDismissMonitors()
 
