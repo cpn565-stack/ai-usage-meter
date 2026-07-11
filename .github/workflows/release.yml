@@ -1,19 +1,13 @@
-# Release pipeline draft: package DMG → optional notarize → appcast → GitHub Release
+# Release: package DMG → optional notarize → appcast → GitHub Release
 #
-# Required secrets for a *fully* public-friendly build:
-#   GEMINI_CLIENT_ID / GEMINI_CLIENT_SECRET   — Gemini refresh in binary
-#   SPARKLE_PRIVATE_KEY                      — EdDSA private key (contents of secrets/sparkle_ed_private.key)
+# Secrets (optional unless noted):
+#   GEMINI_CLIENT_ID / GEMINI_CLIENT_SECRET  — Gemini OAuth in binary
+#   SPARKLE_PRIVATE_KEY                      — EdDSA private key (file body)
+#   APPLE_CODESIGN_IDENTITY                  — Developer ID Application: …
+#   BUILD_CERTIFICATE_BASE64 / P12_PASSWORD / KEYCHAIN_PASSWORD
+#   APPLE_API_KEY_BASE64 / APPLE_API_KEY_ID / APPLE_API_ISSUER
 #
-# Optional (Apple Developer Program — notarization):
-#   APPLE_CODESIGN_IDENTITY                  — "Developer ID Application: Name (TEAMID)"
-#   BUILD_CERTIFICATE_BASE64                 — .p12 of Developer ID cert
-#   P12_PASSWORD
-#   KEYCHAIN_PASSWORD                        — arbitrary password for temp keychain
-#   APPLE_API_KEY_BASE64                     — AuthKey_XXX.p8 contents base64
-#   APPLE_API_KEY_ID
-#   APPLE_API_ISSUER
-#
-# Without Apple secrets, still publishes self-signed DMG + appcast (unsigned enclosure warning).
+# Note: never use `if: secrets.X != ''` — GitHub forbids secrets in if expressions.
 
 name: Release
 
@@ -37,55 +31,64 @@ jobs:
           GEMINI_CLIENT_ID: ${{ secrets.GEMINI_CLIENT_ID }}
           GEMINI_CLIENT_SECRET: ${{ secrets.GEMINI_CLIENT_SECRET }}
         run: |
-          cp Secrets.example.swift Sources/UsageMeter/Secrets.swift
+          set -euo pipefail
           if [ -n "${GEMINI_CLIENT_ID:-}" ] && [ -n "${GEMINI_CLIENT_SECRET:-}" ]; then
-            cat > Sources/UsageMeter/Secrets.swift <<EOF
-          import Foundation
-          enum Secrets {
-              static let geminiClientID = "${GEMINI_CLIENT_ID}"
-              static let geminiClientSecret = "${GEMINI_CLIENT_SECRET}"
-          }
-          EOF
+            {
+              echo 'import Foundation'
+              echo 'enum Secrets {'
+              echo "    static let geminiClientID = \"${GEMINI_CLIENT_ID}\""
+              echo "    static let geminiClientSecret = \"${GEMINI_CLIENT_SECRET}\""
+              echo '}'
+            } > Sources/UsageMeter/Secrets.swift
             echo "Injected Gemini OAuth client from secrets"
           else
-            echo "WARNING: Gemini secrets missing"
+            cp Secrets.example.swift Sources/UsageMeter/Secrets.swift
+            echo "WARNING: Gemini secrets missing; using example placeholders"
           fi
 
       - name: Import Apple certificate (optional)
-        if: ${{ secrets.BUILD_CERTIFICATE_BASE64 != '' }}
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
+          set -euo pipefail
+          if [ -z "${BUILD_CERTIFICATE_BASE64:-}" ]; then
+            echo "No BUILD_CERTIFICATE_BASE64 — skip Developer ID import"
+            exit 0
+          fi
           CERT_PATH="$RUNNER_TEMP/build_certificate.p12"
           KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
           echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security create-keychain -p "${KEYCHAIN_PASSWORD:-ci}" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD:-ci}" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "${P12_PASSWORD:-}" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
           security list-keychain -d user -s "$KEYCHAIN_PATH"
           security find-identity -v -p codesigning
 
       - name: Package DMG
         env:
           APPLE_CODESIGN_IDENTITY: ${{ secrets.APPLE_CODESIGN_IDENTITY }}
-          VERSION: ${{ github.ref_name }}
           BUILD_NUMBER: ${{ github.run_number }}
         run: |
-          VERSION="${VERSION#v}"
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
           export VERSION BUILD_NUMBER
           ./make-dmg.sh
           ls -la UsageMeter-*.dmg
 
       - name: Notarize (optional)
-        if: ${{ secrets.APPLE_API_KEY_BASE64 != '' && secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER != '' }}
         env:
           APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
+          set -euo pipefail
+          if [ -z "${APPLE_API_KEY_BASE64:-}" ] || [ -z "${APPLE_API_KEY_ID:-}" ] || [ -z "${APPLE_API_ISSUER:-}" ]; then
+            echo "Notarization secrets missing — skip"
+            exit 0
+          fi
           KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
           echo -n "$APPLE_API_KEY_BASE64" | base64 --decode -o "$KEY_PATH"
           DMG="$(ls UsageMeter-*.dmg | head -1)"
@@ -100,16 +103,15 @@ jobs:
       - name: Generate appcast
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-          VERSION: ${{ github.ref_name }}
           BUILD_NUMBER: ${{ github.run_number }}
         run: |
-          VERSION="${VERSION#v}"
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
           export VERSION BUILD_NUMBER
           mkdir -p secrets
           if [ -n "${SPARKLE_PRIVATE_KEY:-}" ]; then
             printf '%s' "$SPARKLE_PRIVATE_KEY" > secrets/sparkle_ed_private.key
           fi
-          # ensure generate_appcast available
           swift build -c release --scratch-path "$HOME/Library/Caches/usagemeter-build" || true
           DMG="$(ls UsageMeter-*.dmg | head -1)"
           ./scripts/generate-appcast.sh "$DMG" || true
@@ -128,9 +130,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           DMG="UsageMeter-${VERSION}.dmg"
-          NOTES="Self-signed or Developer ID build. If Gatekeeper blocks first launch, use Privacy & Security → Open Anyway (until notarized)."
+          NOTES="See CHANGELOG.md. Gatekeeper: Privacy & Security → Open Anyway until notarized."
           FILES=("$DMG")
           if [ -f appcast/appcast.xml ]; then FILES+=(appcast/appcast.xml); fi
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
@@ -140,24 +143,25 @@ jobs:
           fi
 
       - name: Commit appcast to main
-        if: ${{ hashFiles('appcast/appcast.xml') != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Keep SUFeedURL (raw.githubusercontent.com/.../main/appcast/appcast.xml) current.
+          set -euo pipefail
+          if [ ! -f appcast/appcast.xml ]; then
+            echo "no appcast — skip"
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          mkdir -p appcast
+          cp appcast/appcast.xml /tmp/appcast-new.xml
           git fetch origin main
-          git stash push -u -m appcast -- appcast/appcast.xml || true
           git checkout -B appcast-bot origin/main
-          git stash pop || true
-          if [ -f appcast/appcast.xml ]; then
-            git add appcast/appcast.xml
-            if git diff --staged --quiet; then
-              echo "appcast unchanged"
-            else
-              git commit -m "chore: update Sparkle appcast for ${GITHUB_REF_NAME}"
-              git push origin HEAD:main
-            fi
+          mkdir -p appcast
+          cp /tmp/appcast-new.xml appcast/appcast.xml
+          git add appcast/appcast.xml
+          if git diff --staged --quiet; then
+            echo "appcast unchanged"
+          else
+            git commit -m "chore: update Sparkle appcast for ${GITHUB_REF_NAME}"
+            git push origin HEAD:main
           fi
