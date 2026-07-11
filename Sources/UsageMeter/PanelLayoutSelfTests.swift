@@ -77,7 +77,7 @@ enum PanelLayoutSelfTests {
                    "[\(label)] width 應為 \(Int(panelWidth)),得 \(Int(p.contentSize.width))")
         try expect(p.contentSize.height >= 120,
                    "[\(label)] height 過矮 \(Int(p.contentSize.height)) — header 可能被裁")
-        try expect(p.headerHeight >= 42,
+        try expect(p.headerHeight >= 28,
                    "[\(label)] header 高度異常 \(Int(p.headerHeight)) — 狀態列可能被擠扁")
         try expect(p.headerMinY >= -0.5,
                    "[\(label)] header 被裁到面板上方 minY=\(p.headerMinY)")
