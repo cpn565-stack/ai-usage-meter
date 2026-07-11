@@ -22,6 +22,7 @@ enum GrokProvider {
         "GrokImagine": ("imagine", "grok.imagine", true),
         "GrokPlugins": ("plugins", "grok.plugins", false),
         "Other":       ("other",   "grok.other",   false),
+        "GrokOther":   ("other",   "grok.other",   false),
     ]
 
     struct Store {
