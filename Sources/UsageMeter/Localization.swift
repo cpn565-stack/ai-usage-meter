@@ -9,6 +9,7 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         case .zhHant: return "繁體中文"
         case .ja:     return "日本語"
         case .en:     return "English"
+        }
     }
 }
 

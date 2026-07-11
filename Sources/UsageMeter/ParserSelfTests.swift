@@ -144,6 +144,7 @@ enum ParserSelfTests {
               {"product": "GrokChat", "usagePercent": 12.0},
               {"product": "GrokBuild", "usagePercent": 7.0},
               {"product": "GrokImagine", "usagePercent": 4.0},
+              {"product": "Other", "usagePercent": 2.0},
               {"product": "GrokPlugins"}
             ],
             "isUnifiedBillingUser": true
@@ -154,12 +155,31 @@ enum ParserSelfTests {
 
         try expect(usage.provider == .grok, "Grok provider mismatch")
         try expect(usage.plan == "SuperGrok", "Grok plan mismatch")
-        try expect(usage.buckets.map(\.key) == ["week", "chat", "build", "imagine"], "Grok buckets mismatch")
+        try expect(usage.buckets.map(\.key) == ["week", "chat", "build", "imagine", "other"],
+                   "Grok buckets mismatch")
         try expect(Int(usage.buckets[0].usedPercent) == 23, "Grok total percent mismatch")
         try expect(Int(usage.buckets[1].usedPercent) == 12, "Grok chat percent mismatch")
         try expect(Int(usage.buckets[2].usedPercent) == 7, "Grok build percent mismatch")
         try expect(Int(usage.buckets[3].usedPercent) == 4, "Grok imagine percent mismatch")
+        try expect(Int(usage.buckets[4].usedPercent) == 2, "Grok other percent mismatch")
+        try expect(usage.buckets[4].label == "grok.other", "Grok other label key mismatch")
+        try expect(usage.buckets[4].defaultOn == false, "Grok other should default off")
         try expect(usage.buckets[0].resetsAt != nil, "Grok reset date missing")
+
+        // 別名相容:API 若回 GrokOther 也應對到 other
+        let alias = Data("""
+        {
+          "config": {
+            "creditUsagePercent": 10.0,
+            "productUsage": [
+              {"product": "GrokOther", "usagePercent": 3.0}
+            ]
+          }
+        }
+        """.utf8)
+        let aliased = try GrokProvider.parseBillingResponse(alias)
+        try expect(aliased.buckets.map(\.key) == ["week", "other"], "GrokOther alias keys mismatch")
+        try expect(Int(aliased.buckets[1].usedPercent) == 3, "GrokOther alias percent mismatch")
     }
 
     private static func testUnexpectedShapeIsApiChanged() throws {
