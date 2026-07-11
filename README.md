@@ -2,15 +2,15 @@
 
 [![Build](https://github.com/cpn565-stack/ai-usage-meter/actions/workflows/build.yml/badge.svg)](https://github.com/cpn565-stack/ai-usage-meter/actions/workflows/build.yml)
 
-A lightweight macOS **menu bar** app that shows your official **Claude**, **Codex (ChatGPT)**, and **Gemini (Antigravity)** usage — 5‑hour and weekly windows — at a glance, so you never blindly hit a rate limit.
+A lightweight macOS **menu bar** app that shows your official **Claude**, **Codex (ChatGPT)**, **Gemini (Antigravity)**, and **Grok (SuperGrok)** usage — 5‑hour and weekly windows — at a glance, so you never blindly hit a rate limit.
 
-Built with native AppKit (`NSStatusItem` + `NSPopover`). No Dock icon, no background server, no third‑party telemetry. It reads the credentials already stored on your machine by the official desktop apps and calls each provider's own usage endpoint.
+Built with native AppKit (`NSStatusItem` + `NSPopover`). No Dock icon, no background server, no third‑party telemetry. It reads the credentials already stored on your machine by the official desktop apps / CLIs and calls each provider's own usage endpoint.
 
 ## Features
 
-- **Three providers in one place** — Claude, Codex, and Gemini side by side.
+- **Four providers in one place** — Claude, Codex, Gemini, and Grok side by side.
 - **Official numbers** — polls each vendor's real usage API (not a local token estimate).
-- **Per‑bucket detail** — 5h / weekly windows, Claude scoped model/surface limits, and every Gemini model quota.
+- **Per‑bucket detail** — 5h / weekly windows, Claude scoped model/surface limits, every Gemini model quota, and Grok weekly SuperGrok split (Chat / Build / Imagine).
 - **Menu‑bar percentage** — pick "all (max)" or a specific provider/window to show in the bar.
 - **Auto token refresh** — transparently refreshes expiring OAuth tokens and writes them back so the official apps stay in sync.
 - **Configurable** — polling interval (10 min / 30 min / manual), launch at login, which items to show, and UI language (繁體中文 / 日本語 / English).
@@ -18,10 +18,11 @@ Built with native AppKit (`NSStatusItem` + `NSPopover`). No Dock icon, no backgr
 ## Requirements
 
 - macOS 13+ (Apple Silicon / arm64)
-- The official desktop app for each provider you want to track, already signed in:
+- The official desktop app / CLI for each provider you want to track, already signed in:
   - **Claude** desktop app (reads `~/Library/Application Support/Claude/config.json`)
   - **Codex** CLI (`~/.codex/auth.json`)
   - **Antigravity** (Gemini OAuth token in Keychain)
+  - **Grok Build CLI** (`~/.grok/auth.json` after `grok login`)
 
 ## Build from source
 
@@ -50,6 +51,7 @@ Each provider has its own `*Provider.swift`:
 - **Claude** — decrypts the Electron `safeStorage` token cache (`oauth:tokenCacheV2`, falling back to the legacy `oauth:tokenCache`) using the `Claude Safe Storage` Keychain key, then calls `GET /api/oauth/usage`. Refreshes via `https://platform.claude.com/v1/oauth/token` when the access token is about to expire.
 - **Codex** — reads `~/.codex/auth.json`, calls the ChatGPT backend usage endpoint, refreshes against `auth.openai.com`.
 - **Gemini** — reads the Antigravity OAuth token from Keychain and queries the Cloud Code companion API for per‑model quotas.
+- **Grok** — reads `~/.grok/auth.json` (Grok Build CLI OIDC), calls `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` for weekly SuperGrok usage (`creditUsagePercent` + `productUsage` Chat/Build/Imagine), refreshes against `auth.x.ai/oauth2/token`.
 
 ## Security & disclaimer
 

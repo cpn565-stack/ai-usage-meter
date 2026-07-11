@@ -11,12 +11,14 @@ enum ParserSelfTests {
         try testClaudeLimitsListParsing()
         try testCodexUsageParsing()
         try testGeminiModelsParsing()
+        try testGrokBillingParsing()
         try testUnexpectedShapeIsApiChanged()
         return [
             "✓ Claude parser fixture",
             "✓ Claude limits list fixture",
             "✓ Codex parser fixture",
             "✓ Gemini parser fixture",
+            "✓ Grok billing fixture",
             "✓ Unexpected shape reports API change",
         ]
     }
@@ -126,6 +128,38 @@ enum ParserSelfTests {
         try expect(usage.buckets.map(\.label) == ["Gemini A", "Gemini B"], "Gemini labels mismatch")
         try expect(Int(usage.buckets[0].usedPercent) == 75, "Gemini percent mismatch")
         try expect(usage.buckets[0].defaultOn, "Gemini recommended flag mismatch")
+    }
+
+    private static func testGrokBillingParsing() throws {
+        let data = Data("""
+        {
+          "config": {
+            "currentPeriod": {
+              "type": "USAGE_PERIOD_TYPE_WEEKLY",
+              "start": "2026-07-07T09:45:40.978386+00:00",
+              "end": "2026-07-14T09:45:40.978386+00:00"
+            },
+            "creditUsagePercent": 23.0,
+            "productUsage": [
+              {"product": "GrokChat", "usagePercent": 12.0},
+              {"product": "GrokBuild", "usagePercent": 7.0},
+              {"product": "GrokImagine", "usagePercent": 4.0},
+              {"product": "GrokPlugins"}
+            ],
+            "isUnifiedBillingUser": true
+          }
+        }
+        """.utf8)
+        let usage = try GrokProvider.parseBillingResponse(data)
+
+        try expect(usage.provider == .grok, "Grok provider mismatch")
+        try expect(usage.plan == "SuperGrok", "Grok plan mismatch")
+        try expect(usage.buckets.map(\.key) == ["week", "chat", "build", "imagine"], "Grok buckets mismatch")
+        try expect(Int(usage.buckets[0].usedPercent) == 23, "Grok total percent mismatch")
+        try expect(Int(usage.buckets[1].usedPercent) == 12, "Grok chat percent mismatch")
+        try expect(Int(usage.buckets[2].usedPercent) == 7, "Grok build percent mismatch")
+        try expect(Int(usage.buckets[3].usedPercent) == 4, "Grok imagine percent mismatch")
+        try expect(usage.buckets[0].resetsAt != nil, "Grok reset date missing")
     }
 
     private static func testUnexpectedShapeIsApiChanged() throws {

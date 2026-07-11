@@ -66,5 +66,9 @@ enum Loc {
         "menu.window": [.zhHant: "窗口",      .ja: "期間",           .en: "Window"],
         "bucket.max":  [.zhHant: "最高",      .ja: "最大",           .en: "Max"],
         "set.display": [.zhHant: "顯示細項",  .ja: "表示する項目",    .en: "Shown items"],
+        "grok.chat":   [.zhHant: "對話",      .ja: "チャット",       .en: "Chat"],
+        "grok.build":  [.zhHant: "Grok Build",.ja: "Grok Build",     .en: "Grok Build"],
+        "grok.imagine":[.zhHant: "Imagine",   .ja: "Imagine",        .en: "Imagine"],
+        "grok.plugins":[.zhHant: "Plugins",   .ja: "Plugins",        .en: "Plugins"],
     ]
 }

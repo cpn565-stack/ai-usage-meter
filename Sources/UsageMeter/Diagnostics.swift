@@ -24,6 +24,12 @@ enum Diagnostics {
                 let creds = try GeminiProvider.loadCredsFromKeychain()
                 let hasRefresh = creds.refreshToken?.isEmpty == false ? "refresh token present" : "no refresh token"
                 return ok(provider, "\(hasRefresh), access token \(expiryText(creds.expiry))")
+
+            case .grok:
+                let store = try GrokProvider.loadStore()
+                let hasRefresh = store.refreshToken?.isEmpty == false ? "refresh token present" : "no refresh token"
+                let email = store.email.map { "\($0), " } ?? ""
+                return ok(provider, "\(email)\(hasRefresh), access token \(expiryText(store.expiresAt))")
             }
         } catch {
             return fail(provider, error.localizedDescription)

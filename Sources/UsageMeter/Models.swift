@@ -11,13 +11,14 @@ struct UsageBucket: Equatable, Identifiable {
 }
 
 enum ProviderID: String, CaseIterable, Identifiable {
-    case claude, codex, gemini
+    case claude, codex, gemini, grok
     var id: String { rawValue }
     var displayName: String {
         switch self {
         case .claude: return "Claude"
         case .codex:  return "Codex"
         case .gemini: return "Gemini"
+        case .grok:   return "Grok"
         }
     }
 }
