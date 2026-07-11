@@ -9,7 +9,6 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         case .zhHant: return "繁體中文"
         case .ja:     return "日本語"
         case .en:     return "English"
-        }
     }
 }
 
@@ -70,5 +69,6 @@ enum Loc {
         "grok.build":  [.zhHant: "Grok Build",.ja: "Grok Build",     .en: "Grok Build"],
         "grok.imagine":[.zhHant: "Imagine",   .ja: "Imagine",        .en: "Imagine"],
         "grok.plugins":[.zhHant: "Plugins",   .ja: "Plugins",        .en: "Plugins"],
+        "grok.other":  [.zhHant: "其他",     .ja: "その他",       .en: "Other"],
     ]
 }

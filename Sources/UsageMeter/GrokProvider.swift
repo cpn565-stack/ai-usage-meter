@@ -5,7 +5,7 @@ import Foundation
 ///
 /// 回傳結構對應 grok.com「使用情況」面板:
 /// - 總週用量 `creditUsagePercent`
-/// - 產品拆分 `productUsage`: GrokChat / GrokBuild / GrokImagine
+/// - 產品拆分 `productUsage`: GrokChat / GrokBuild / GrokImagine / GrokOther 等
 ///
 /// access token 將過期時用 refresh token 續期並寫回 auth.json。
 enum GrokProvider {
@@ -21,6 +21,7 @@ enum GrokProvider {
         "GrokBuild":   ("build",   "grok.build",   true),
         "GrokImagine": ("imagine", "grok.imagine", true),
         "GrokPlugins": ("plugins", "grok.plugins", false),
+        "GrokOther":   ("other",   "grok.other",   false),
     ]
 
     struct Store {
@@ -183,7 +184,7 @@ enum GrokProvider {
             ))
         }
 
-        // 產品拆分:對話 / Build / Imagine
+        // 產品拆分:對話 / Build / Imagine / Other 等
         if let products = config["productUsage"] as? [[String: Any]] {
             for item in products {
                 guard let product = item["product"] as? String else { continue }
