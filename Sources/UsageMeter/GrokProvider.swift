@@ -5,7 +5,7 @@ import Foundation
 ///
 /// 回傳結構對應 grok.com「使用情況」面板:
 /// - 總週用量 `creditUsagePercent`
-/// - 產品拆分 `productUsage`: GrokChat / GrokBuild / GrokImagine / GrokOther 等
+/// - 產品拆分 `productUsage`: GrokChat / GrokBuild / GrokImagine / Other / GrokPlugins (Office Plugins)
 ///
 /// access token 將過期時用 refresh token 續期並寫回 auth.json。
 enum GrokProvider {
@@ -21,7 +21,7 @@ enum GrokProvider {
         "GrokBuild":   ("build",   "grok.build",   true),
         "GrokImagine": ("imagine", "grok.imagine", true),
         "GrokPlugins": ("plugins", "grok.plugins", false),
-        "GrokOther":   ("other",   "grok.other",   false),
+        "Other":       ("other",   "grok.other",   false),
     ]
 
     struct Store {
@@ -70,7 +70,7 @@ enum GrokProvider {
         )
     }
 
-    /// 解 JWT exp(秒)。
+    /// 解 JWT exp(秒）。
     static func jwtExpiry(_ token: String) -> Date? {
         let parts = token.split(separator: ".")
         guard parts.count >= 2 else { return nil }
