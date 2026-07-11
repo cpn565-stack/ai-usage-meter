@@ -5,23 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.3] - 2026-07-11
 
 ### Added
-- Grok product category **Other**
-  - Maps `productUsage` product id `Other` (and alias `GrokOther`) → bucket key `other`
-  - Localized label: 繁中「其他」/ 日文「その他」/ English「Other」
-  - `defaultOn = false` — hidden until enabled in Preferences → Shown items
-  - Parser self-test covers both `Other` and `GrokOther`
+- Grok product category **Other** (`Other` / `GrokOther` → bucket `other`, default hidden)
+- MIT `LICENSE`
+- CI injection of `GEMINI_CLIENT_ID` / `GEMINI_CLIENT_SECRET` for release DMGs (values stay in Actions secrets)
+- Diagnostic scripts: `scripts/probe_gemini_auth.py`, `scripts/probe_grok_billing.py`
 
 ### Fixed
-- Restore missing `}` in `Localization.swift` (`AppLanguage.nativeName` switch) that broke the build after the Other feature commits
+- Localization build break (missing `}` in `AppLanguage.nativeName`)
+- Gemini: fall back to non-expired Antigravity access token when OAuth refresh fails
+- Grok/Other parser self-tests
 
 ## [0.2.2] - 2026-07-11
 
 ### Added
 - Grok SuperGrok weekly usage (Chat / Build / Imagine)
-- Popover layout self-tests in CI
+- Popover layout self-tests in CI (`--self-test`)
 
 ### Fixed
 - Popover header clipping and height when hiding buckets
+
+## [0.2.1] - 2026-07-11
+
+### Fixed
+- Early layout regressions around popover content size
+
+## [0.2.0] - 2026-07-02
+
+### Added
+- Claude scoped weekly limits
+- Release DMG automation on version tags

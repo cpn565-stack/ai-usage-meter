@@ -42,9 +42,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 真正的 Secrets.swift 不進版控(見 .gitignore);CI 用範本補一份佔位值即可編譯。
-      - name: Provide placeholder Secrets.swift
-        run: cp Secrets.example.swift Sources/UsageMeter/Secrets.swift
+      # Secrets.swift 不進版控。Release 用 Actions secrets 注入 Antigravity OAuth client
+      # (公開 desktop client,非個人帳密);未設定時退回 example 佔位符(Gemini refresh 會失敗)。
+      - name: Provide Secrets.swift for release
+        env:
+          GEMINI_CLIENT_ID: ${{ secrets.GEMINI_CLIENT_ID }}
+          GEMINI_CLIENT_SECRET: ${{ secrets.GEMINI_CLIENT_SECRET }}
+        run: |
+          cp Secrets.example.swift Sources/UsageMeter/Secrets.swift
+          if [ -n "${GEMINI_CLIENT_ID:-}" ] && [ -n "${GEMINI_CLIENT_SECRET:-}" ]; then
+            cat > Sources/UsageMeter/Secrets.swift <<EOF
+          import Foundation
+          enum Secrets {
+              static let geminiClientID = "${GEMINI_CLIENT_ID}"
+              static let geminiClientSecret = "${GEMINI_CLIENT_SECRET}"
+          }
+          EOF
+            echo "Injected GEMINI_CLIENT_ID/SECRET from Actions secrets"
+          else
+            echo "WARNING: GEMINI_CLIENT_ID/SECRET not set; Gemini refresh will not work in this DMG"
+          fi
 
       - name: Package DMG
         run: |
