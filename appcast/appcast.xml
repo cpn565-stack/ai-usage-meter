@@ -3,12 +3,21 @@
   <channel>
     <title>UsageMeter</title>
     <link>https://github.com/cpn565-stack/ai-usage-meter</link>
-    <description>UsageMeter updates (placeholder — regenerate with scripts/generate-appcast.sh on each release)</description>
+    <description>UsageMeter updates</description>
     <language>en</language>
-    <!--
-      Items are added by scripts/generate-appcast.sh during release.
-      SUFeedURL points here:
-      https://raw.githubusercontent.com/cpn565-stack/ai-usage-meter/main/appcast/appcast.xml
-    -->
+    <item>
+      <title>UsageMeter 0.2.4</title>
+      <pubDate>Sat, 11 Jul 2026 10:01:15 +0000</pubDate>
+      <description><![CDATA[<h3>0.2.4</h3><ul><li>Sparkle auto-update</li><li>Grok Other bucket</li><li>Gemini / Antigravity refresh fixes</li><li>MIT license + public release docs</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/cpn565-stack/ai-usage-meter/releases/download/v0.2.4/UsageMeter-0.2.4.dmg"
+        sparkle:version="21"
+        sparkle:shortVersionString="0.2.4"
+        length="2168637"
+        type="application/octet-stream"
+        sparkle:edSignature="KFY4MF6O9cojrRLI+Y3Xjy1DzmiaaYmv8minbKPpgIOB/PCYQiCFENa/maAY2ljbBl4fd7LodFrcmMFjy3nqDA=="
+      />
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+    </item>
   </channel>
 </rss>

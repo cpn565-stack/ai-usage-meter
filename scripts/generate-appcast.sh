@@ -58,12 +58,32 @@ if [ -n "$GEN_APPCAST" ] && [ -f "$KEY_FILE" ]; then
   echo "  generate_appcast 未產出 xml,改用手寫 appcast…"
 fi
 
-# 手寫 fallback(仍建議用 generate_appcast + 私鑰簽 enclosure)
+# 手寫 fallback:用 sign_update 對 dmg 簽 enclosure
 LENGTH="$(wc -c < "$DMG" | tr -d ' ')"
 PUB_DATE="$(date -u '+%a, %d %b %Y %H:%M:%S +0000')"
 ED_SIG=""
-if [ -f "$KEY_FILE" ] && [ -x .build/artifacts/sparkle/Sparkle/bin/sign_update ]; then
-  ED_SIG="$(.build/artifacts/sparkle/Sparkle/bin/sign_update -f "$KEY_FILE" "$DMG" 2>/dev/null | tail -1 || true)"
+SIGN_UPDATE=""
+for cand in \
+  .build/artifacts/sparkle/Sparkle/bin/sign_update \
+  "$HOME/Library/Caches/usagemeter-build/artifacts/sparkle/Sparkle/bin/sign_update"
+do
+  if [ -x "$cand" ]; then SIGN_UPDATE="$cand"; break; fi
+done
+if [ -n "$SIGN_UPDATE" ]; then
+  # 優先 Keychain 內的 key;失敗再 -ed-key-file
+  LINE="$("$SIGN_UPDATE" "$DMG" 2>/dev/null | tail -1 || true)"
+  if [ -z "$LINE" ] && [ -f "$KEY_FILE" ]; then
+    LINE="$("$SIGN_UPDATE" --ed-key-file "$KEY_FILE" "$DMG" 2>/dev/null | tail -1 || true)"
+  fi
+  # 期望: sparkle:edSignature="..." length="..."
+  if [[ "$LINE" == sparkle:edSignature=* ]]; then
+    ED_SIG="$(printf '%s' "$LINE" | sed -E 's/.*sparkle:edSignature="([^"]+)".*/\1/')"
+  fi
+fi
+
+SIG_ATTR=""
+if [ -n "$ED_SIG" ]; then
+  SIG_ATTR="sparkle:edSignature=\"${ED_SIG}\""
 fi
 
 cat > "$OUT" <<XML
@@ -80,11 +100,11 @@ cat > "$OUT" <<XML
       <description><![CDATA[${NOTES_HTML}]]></description>
       <enclosure
         url="${DOWNLOAD_BASE}/$(basename "$DMG")"
-        length="${LENGTH}"
-        type="application/octet-stream"
         sparkle:version="${BUILD_NUMBER}"
         sparkle:shortVersionString="${VERSION}"
-        $([ -n "$ED_SIG" ] && echo "sparkle:edSignature=\"${ED_SIG}\"")
+        length="${LENGTH}"
+        type="application/octet-stream"
+        ${SIG_ATTR}
       />
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
     </item>
@@ -92,8 +112,10 @@ cat > "$OUT" <<XML
 </rss>
 XML
 
-echo "✓ 寫入 $OUT (hand-written appcast)"
+echo "✓ 寫入 $OUT"
 if [ -z "$ED_SIG" ]; then
-  echo "⚠ 缺少 EdDSA 簽章 — 請放置 secrets/sparkle_ed_private.key 並安裝 Sparkle tools 後重跑"
+  echo "⚠ 缺少 EdDSA 簽章 — 確認 Keychain 有 Sparkle key 或 secrets/sparkle_ed_private.key"
+else
+  echo "  edSignature: ${ED_SIG:0:16}…"
 fi
 cat "$OUT"
