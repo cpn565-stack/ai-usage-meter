@@ -73,7 +73,11 @@ final class PanelViewController: NSViewController {
         providerStack.orientation = .vertical
         providerStack.alignment = .leading
         providerStack.spacing = 9
+        providerStack.distribution = .fill
         providerStack.translatesAutoresizingMaskIntoConstraints = false
+        // 避免被 scrollView 舊高度撐開,否則取消細項後 fittingSize 仍回報過高。
+        providerStack.setHuggingPriority(.required, for: .vertical)
+        providerStack.setContentCompressionResistancePriority(.required, for: .vertical)
 
         let doc = NSView()
         doc.translatesAutoresizingMaskIntoConstraints = false
@@ -203,13 +207,41 @@ final class PanelViewController: NSViewController {
     }
 
     private func updateContentSize() {
-        view.layoutSubtreeIfNeeded()
-        scrollHeight.constant = min(max(providerStack.fittingSize.height, 1), listMaxHeight)
+        // 先把 scroll 區收成 1pt 再量,避免 providerStack 被上一輪的大高度撐開,
+        // 導致取消顯示細項後 fittingSize 仍偏高、popover 留下空白。
+        scrollHeight.constant = 1
         view.layoutSubtreeIfNeeded()
 
-        let size = NSSize(width: panelWidth, height: ceil(view.fittingSize.height))
+        let contentH = measuredProviderStackHeight()
+        scrollHeight.constant = min(max(contentH, 1), listMaxHeight)
+        view.layoutSubtreeIfNeeded()
+
+        // 用約束鏈算出整塊面板高度;fittingSize 在固定 width 下通常可靠。
+        var totalH = ceil(view.fittingSize.height)
+        if totalH < 80 {
+            // 極端情況下 fittingSize 失效時的保底
+            totalH = ceil(contentH + 120)
+        }
+        let size = NSSize(width: panelWidth, height: totalH)
         preferredContentSize = size
+        view.setFrameSize(size)
         contentSizeDidChange?(size)
+    }
+
+    /// 直接加總 arranged subviews 高度 + spacing,不依賴可能被父視圖撐開的 fittingSize。
+    private func measuredProviderStackHeight() -> CGFloat {
+        let views = providerStack.arrangedSubviews
+        guard !views.isEmpty else { return 1 }
+        var height: CGFloat = 0
+        for (i, v) in views.enumerated() {
+            v.layoutSubtreeIfNeeded()
+            let h = v.fittingSize.height
+            // fittingSize 偶發 0 時退回 intrinsic / frame
+            let rowH = h > 0.5 ? h : max(v.intrinsicContentSize.height, v.frame.height, 1)
+            height += rowH
+            if i > 0 { height += providerStack.spacing }
+        }
+        return ceil(height)
     }
 
     // MARK: - Row builders
@@ -229,6 +261,9 @@ final class PanelViewController: NSViewController {
         col.orientation = .vertical
         col.alignment = .leading
         col.spacing = 5
+        col.distribution = .fill
+        col.setHuggingPriority(.required, for: .vertical)
+        col.setContentCompressionResistancePriority(.required, for: .vertical)
         head.widthAnchor.constraint(equalTo: col.widthAnchor).isActive = true
         if let e = usage.error {
             let err = makeLabel(e, size: 10, color: .systemOrange)
