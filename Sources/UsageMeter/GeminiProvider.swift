@@ -102,8 +102,11 @@ enum GeminiProvider {
     }
 
     /// 取得可用 token:優先用記憶體快取;過期才用 refresh token 換新。
-    /// Keychain 只在「沒有任何快取(首次)」或「refresh token 確定失效(invalid_grant)」時才讀,
+    /// Keychain 只在「沒有任何快取(首次)」或「refresh 失敗需重讀 Antigravity」時才讀,
     /// 暫時性錯誤(如剛睡醒網路未就緒)一律不碰 keychain,以免重複跳權限詢問。
+    ///
+    /// 若 refresh 失敗但 Antigravity keychain 內 access token 仍未過期,直接沿用,
+    /// 避免 Secrets 暫錯或 Google 短暫拒絕時整段 Gemini 失敗。
     static func ensureCreds(forceRefresh: Bool = false) async throws -> Creds {
         if cachedCreds == nil { cachedCreds = try loadCreds() }   // 僅首次
         var creds = cachedCreds!
@@ -116,17 +119,35 @@ enum GeminiProvider {
             saveCredsToCache(creds)
             return creds
         } catch ProviderError.http(let code) where code == 400 || code == 401 {
-            // refresh token 失效 → 丟掉自家快取,重讀 Antigravity 最新 token,再試一次
+            // refresh 失敗 → 丟掉自家快取,重讀 Antigravity 最新 token
             invalidateCredsCache()
-            cachedCreds = try loadCredsFromKeychain()
-            saveCredsToCache(cachedCreds!)
-            creds = cachedCreds!
-            if let rt2 = creds.refreshToken {
-                let (at, exp) = try await refresh(rt2)
-                creds.accessToken = at; creds.expiry = exp; cachedCreds = creds
-                saveCredsToCache(creds)
+            let fresh = try loadCredsFromKeychain()
+            // Antigravity 剛登入時 access 可能仍有效,先用它
+            if !forceRefresh, let exp = fresh.expiry, exp > Date().addingTimeInterval(60) {
+                cachedCreds = fresh
+                saveCredsToCache(fresh)
+                return fresh
             }
-            return creds
+            if let rt2 = fresh.refreshToken {
+                do {
+                    let (at, exp) = try await refresh(rt2)
+                    var updated = fresh
+                    updated.accessToken = at
+                    updated.expiry = exp
+                    cachedCreds = updated
+                    saveCredsToCache(updated)
+                    return updated
+                } catch {
+                    // refresh 仍失敗:若 access 尚未過期就硬用,否則丟錯
+                    if let exp = fresh.expiry, exp > Date() {
+                        cachedCreds = fresh
+                        saveCredsToCache(fresh)
+                        return fresh
+                    }
+                    throw error
+                }
+            }
+            return fresh
         }
         // 其他(網路/逾時/5xx)往外丟 → 本輪視為暫時失敗,下輪重試,不碰 keychain
     }
