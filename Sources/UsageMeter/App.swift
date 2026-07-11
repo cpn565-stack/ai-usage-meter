@@ -40,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         popover.behavior = .transient
         popover.animates = false
-        popover.contentSize = NSSize(width: 320, height: 200)
+        popover.contentSize = NSSize(width: panelWidth, height: 200)
         popover.contentViewController = panel
         installPopoverDismissMonitors()
 

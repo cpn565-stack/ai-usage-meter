@@ -1,7 +1,8 @@
 import AppKit
 import Combine
 
-let panelWidth: CGFloat = 320
+/// 與 v0.2 相同的面板寬;布局測試會檢查此值。
+let panelWidth: CGFloat = 300
 private let listMaxHeight: CGFloat = 460
 
 /// 點選單列 icon 後彈出的面板(取代 SwiftUI MenuView)。
@@ -34,17 +35,15 @@ final class PanelViewController: NSViewController {
 
     override func loadView() {
         let root = NSView()
-        // 寬度用約束鎖死,高度由子視圖 + scrollHeight 推算。
-        root.translatesAutoresizingMaskIntoConstraints = false
-        let widthConstraint = root.widthAnchor.constraint(equalToConstant: panelWidth)
-        widthConstraint.priority = .required
-        widthConstraint.isActive = true
+        root.widthAnchor.constraint(equalToConstant: panelWidth).isActive = true
 
-        // ── Header:標題 + 時間 + 右上角重新整理 ──
+        // ── Header:標題 + 狀態列 + 時間 + 重新整理(結構對齊 v0.2)──
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.setContentCompressionResistancePriority(.required, for: .vertical)
         statusLabel.font = .systemFont(ofSize: 10)
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.setContentCompressionResistancePriority(.required, for: .vertical)
         timeLabel.font = .systemFont(ofSize: 10)
         timeLabel.textColor = .secondaryLabelColor
         timeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -58,50 +57,36 @@ final class PanelViewController: NSViewController {
         refreshButton.action = #selector(refreshTapped)
         refreshButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         refreshButton.setContentHuggingPriority(.required, for: .horizontal)
-        NSLayoutConstraint.activate([
-            refreshButton.widthAnchor.constraint(equalToConstant: 22),
-            refreshButton.heightAnchor.constraint(equalToConstant: 22),
-        ])
 
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
-        spinner.setContentCompressionResistancePriority(.required, for: .horizontal)
-        NSLayoutConstraint.activate([
-            spinner.widthAnchor.constraint(equalToConstant: 16),
-            spinner.heightAnchor.constraint(equalToConstant: 16),
-        ])
 
         let titleCol = NSStackView(views: [titleLabel, statusLabel])
         titleCol.orientation = .vertical
         titleCol.spacing = 1
         titleCol.alignment = .leading
         titleCol.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        titleCol.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        titleCol.setContentCompressionResistancePriority(.required, for: .vertical)
 
         let headerSpacer = NSView()
         headerSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        // 與 v0.2 相同:arranged 水平 stack,spacer 撐開中間。
         headerStack.orientation = .horizontal
         headerStack.spacing = 6
         headerStack.alignment = .centerY
-        headerStack.distribution = .fill
         headerStack.edgeInsets = NSEdgeInsets(top: 10, left: 12, bottom: 8, right: 12)
         headerStack.translatesAutoresizingMaskIntoConstraints = false
-        headerStack.setHuggingPriority(.required, for: .vertical)
-        headerStack.setContentCompressionResistancePriority(.required, for: .vertical)
         for v in [titleCol as NSView, headerSpacer, timeLabel, refreshButton, spinner] {
             headerStack.addArrangedSubview(v)
         }
 
-        // ── 用量清單(可捲動)──
+        // ── 用量清單 ──
         providerStack.orientation = .vertical
         providerStack.alignment = .leading
         providerStack.spacing = 9
-        providerStack.distribution = .fill
         providerStack.translatesAutoresizingMaskIntoConstraints = false
-        // 避免被 scrollView 舊高度撐開,否則取消細項後 fittingSize 仍回報過高。
-        providerStack.setHuggingPriority(.required, for: .vertical)
-        providerStack.setContentCompressionResistancePriority(.required, for: .vertical)
 
         let doc = NSView()
         doc.translatesAutoresizingMaskIntoConstraints = false
@@ -119,11 +104,10 @@ final class PanelViewController: NSViewController {
         scrollView.borderType = .noBorder
         scrollView.documentView = doc
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-        doc.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor).isActive = true
+        doc.widthAnchor.constraint(equalTo: scrollView.widthAnchor).isActive = true
         scrollHeight = scrollView.heightAnchor.constraint(equalToConstant: 60)
         scrollHeight.isActive = true
 
-        // ── 分隔線 + 動作列 ──
         let sep = NSBox()
         sep.boxType = .separator
         sep.translatesAutoresizingMaskIntoConstraints = false
@@ -133,8 +117,6 @@ final class PanelViewController: NSViewController {
         footerStack.spacing = 1
         footerStack.edgeInsets = NSEdgeInsets(top: 0, left: 6, bottom: 6, right: 6)
         footerStack.translatesAutoresizingMaskIntoConstraints = false
-        footerStack.setHuggingPriority(.required, for: .vertical)
-        footerStack.setContentCompressionResistancePriority(.required, for: .vertical)
 
         root.addSubview(headerStack)
         root.addSubview(scrollView)
@@ -152,7 +134,6 @@ final class PanelViewController: NSViewController {
             sep.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 8),
             sep.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12),
             sep.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
-            sep.heightAnchor.constraint(equalToConstant: 1),
 
             footerStack.topAnchor.constraint(equalTo: sep.bottomAnchor, constant: 8),
             footerStack.leadingAnchor.constraint(equalTo: root.leadingAnchor),
@@ -186,6 +167,8 @@ final class PanelViewController: NSViewController {
         view.layoutSubtreeIfNeeded()
         let refreshFrame = refreshButton.convert(refreshButton.bounds, to: view)
         let headerFrame = headerStack.convert(headerStack.bounds, to: view)
+        let statusFrame = statusLabel.convert(statusLabel.bounds, to: view)
+        let titleFrame = titleLabel.convert(titleLabel.bounds, to: view)
         var rightmost: CGFloat = 0
         func walk(_ v: NSView) {
             let f = v.convert(v.bounds, to: self.view)
@@ -197,6 +180,9 @@ final class PanelViewController: NSViewController {
             contentSize: preferredContentSize,
             headerHeight: headerFrame.height,
             headerMinY: headerFrame.minY,
+            titleMinY: titleFrame.minY,
+            statusMinY: statusFrame.minY,
+            statusHeight: statusFrame.height,
             refreshVisible: !refreshButton.isHidden,
             refreshMaxX: refreshFrame.maxX,
             refreshMinY: refreshFrame.minY,
@@ -230,13 +216,11 @@ final class PanelViewController: NSViewController {
             spinner.stopAnimation(nil); spinner.isHidden = true; refreshButton.isHidden = false
         }
 
-        // 重建各家用量列
         for v in providerStack.arrangedSubviews { providerStack.removeArrangedSubview(v); v.removeFromSuperview() }
         var rowCount = 0
         for p in ProviderID.allCases where Prefs.shared.isProviderEnabled(p) {
             let usage = store.results[p] ?? .empty(p)
             let shown = usage.buckets.filter { Prefs.shared.isOn(p.rawValue, $0.key, buckets: usage.buckets) }
-            // 全取消勾選且無錯誤就整家隱藏
             if shown.isEmpty && usage.error == nil && !usage.buckets.isEmpty { continue }
             let row = makeProviderRow(usage, shown: shown)
             providerStack.addArrangedSubview(row)
@@ -249,7 +233,6 @@ final class PanelViewController: NSViewController {
             empty.widthAnchor.constraint(equalTo: providerStack.widthAnchor).isActive = true
         }
 
-        // 重建動作列
         for v in footerStack.arrangedSubviews { footerStack.removeArrangedSubview(v); v.removeFromSuperview() }
         let prefsRow = MenuRowView(title: Loc.tr("btn.prefs", lang)) { [weak self] in self?.openSettings() }
         let quitRow = MenuRowView(title: Loc.tr("btn.quit", lang)) { NSApp.terminate(nil) }
@@ -262,40 +245,31 @@ final class PanelViewController: NSViewController {
     }
 
     private func updateContentSize() {
-        // 先把 scroll 區收成 1pt 再量,避免 providerStack 被上一輪的大高度撐開。
+        // 重要:絕不可把 view 暫時設成超高再只改 preferredContentSize。
+        // popover 只顯示 contentSize 那一截;view 若仍是 2000pt 高,標題(在頂部)會被裁掉。
+
+        // 1) 先收掉 scroll 高度,避免 providerStack 被上一輪大高度撐開。
         scrollHeight.constant = 1
+        // 先固定寬度再 layout,fittingSize 才準。
+        view.setFrameSize(NSSize(width: panelWidth, height: max(view.frame.height, 100)))
         view.layoutSubtreeIfNeeded()
 
-        let contentH = measuredProviderStackHeight()
-        scrollHeight.constant = min(max(contentH, 1), listMaxHeight)
+        // 2) 量內容高度(此時 scroll=1,stack 不會被撐開)。
+        let contentH = max(providerStack.fittingSize.height, 1)
+        scrollHeight.constant = min(contentH, listMaxHeight)
         view.layoutSubtreeIfNeeded()
 
-        headerStack.layoutSubtreeIfNeeded()
-        footerStack.layoutSubtreeIfNeeded()
-        let headerH = max(headerStack.fittingSize.height, 40)
+        // 3) 用各段明確加總(比 fittingSize 穩),避免低估把標題/狀態列裁掉。
+        let headerH = max(headerStack.fittingSize.height, 44)
         let footerH = max(footerStack.fittingSize.height, 54)
         let sepAndGaps: CGFloat = 8 + 1 + 8
         let totalH = ceil(headerH + scrollHeight.constant + sepAndGaps + footerH)
 
         let size = NSSize(width: panelWidth, height: max(totalH, 120))
         preferredContentSize = size
+        // 必須與 popover.contentSize 一致,否則裁切頂部或底部。
+        view.setFrameSize(size)
         contentSizeDidChange?(size)
-    }
-
-    /// 直接加總 arranged subviews 高度 + spacing,不依賴可能被父視圖撐開的 fittingSize。
-    private func measuredProviderStackHeight() -> CGFloat {
-        let views = providerStack.arrangedSubviews
-        guard !views.isEmpty else { return 1 }
-        var height: CGFloat = 0
-        for (i, v) in views.enumerated() {
-            v.layoutSubtreeIfNeeded()
-            let fitted = v.fittingSize.height
-            let intrinsic = v.intrinsicContentSize.height
-            let rowH = max(fitted, intrinsic, v.frame.height, 1)
-            height += rowH
-            if i > 0 { height += providerStack.spacing }
-        }
-        return ceil(height)
     }
 
     // MARK: - Row builders
@@ -315,9 +289,6 @@ final class PanelViewController: NSViewController {
         col.orientation = .vertical
         col.alignment = .leading
         col.spacing = 5
-        col.distribution = .fill
-        col.setHuggingPriority(.required, for: .vertical)
-        col.setContentCompressionResistancePriority(.required, for: .vertical)
         head.widthAnchor.constraint(equalTo: col.widthAnchor).isActive = true
         if let e = usage.error {
             let err = makeLabel(e, size: 10, color: .systemOrange)
@@ -351,28 +322,21 @@ final class PanelViewController: NSViewController {
         bar.percent = b.usedPercent
         bar.fillColor = Self.barColor(b.usedPercent)
         bar.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        bar.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let pct = makeLabel("\(Int(b.usedPercent.rounded()))%", size: 11, mono: true)
         pct.alignment = .right
         pct.widthAnchor.constraint(equalToConstant: 36).isActive = true
-        pct.setContentCompressionResistancePriority(.required, for: .horizontal)
-        pct.setContentHuggingPriority(.required, for: .horizontal)
 
         let reset = makeLabel(formatReset(b.resetsAt, lang: lang), size: 10, color: .secondaryLabelColor)
         reset.alignment = .right
-        // 夠放「↻6d7h」;優先壓縮 bar 而不是裁切 reset。
-        reset.widthAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
-        reset.widthAnchor.constraint(lessThanOrEqualToConstant: 64).isActive = true
+        reset.widthAnchor.constraint(equalToConstant: 52).isActive = true
         reset.setContentCompressionResistancePriority(.required, for: .horizontal)
-        reset.setContentHuggingPriority(.required, for: .horizontal)
 
         let h = NSStackView(views: [name, bar, pct, reset])
         h.orientation = .horizontal
-        h.spacing = 6
+        h.spacing = 8
         h.alignment = .centerY
         h.distribution = .fill
-        h.setHuggingPriority(.required, for: .vertical)
         return h
     }
 
@@ -435,7 +399,7 @@ final class PanelViewController: NSViewController {
     }
 }
 
-/// 用量進度條(layer 繪製,輕量)。
+/// 用量進度條(layer 繪製,輕量)。高度固定 7pt,與 v0.2 一致。
 final class BarView: NSView {
     private let track = CALayer()
     private let fill = CALayer()

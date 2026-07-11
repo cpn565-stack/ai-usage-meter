@@ -77,10 +77,29 @@ enum PanelLayoutSelfTests {
                    "[\(label)] width 應為 \(Int(panelWidth)),得 \(Int(p.contentSize.width))")
         try expect(p.contentSize.height >= 120,
                    "[\(label)] height 過矮 \(Int(p.contentSize.height)) — header 可能被裁")
-        try expect(p.headerHeight >= 28,
-                   "[\(label)] header 高度異常 \(Int(p.headerHeight))")
+        try expect(p.headerHeight >= 42,
+                   "[\(label)] header 高度異常 \(Int(p.headerHeight)) — 狀態列可能被擠扁")
         try expect(p.headerMinY >= -0.5,
                    "[\(label)] header 被裁到面板上方 minY=\(p.headerMinY)")
+        // AppKit 座標:y 向上。標題應在狀態列「上面」→ titleMinY > statusMinY。
+        // 兩者都必須落在 [0, contentSize.height] 內,否則 popover 會裁切。
+        let contentH = p.contentSize.height
+        try expect(p.titleMinY >= 0,
+                   "[\(label)] 標題被裁到面板下方 titleMinY=\(p.titleMinY)")
+        try expect(p.titleMinY + 12 <= contentH + 0.5,
+                   "[\(label)] 標題被裁到面板上方 titleMinY=\(p.titleMinY) contentH=\(contentH)")
+        try expect(p.statusMinY >= 0,
+                   "[\(label)] 狀態列被裁到面板下方 statusMinY=\(p.statusMinY)")
+        try expect(p.statusMinY + p.statusHeight <= contentH + 0.5,
+                   "[\(label)] 狀態列被裁切 statusMaxY=\(p.statusMinY + p.statusHeight) contentH=\(contentH)")
+        try expect(p.titleMinY > p.statusMinY,
+                   "[\(label)] 標題應在狀態列上方(AppKit y↑) titleMinY=\(p.titleMinY) statusMinY=\(p.statusMinY)")
+        try expect(p.statusHeight >= 10,
+                   "[\(label)] 狀態列高度被擠扁 statusHeight=\(p.statusHeight)")
+        try expect(p.headerMinY >= 0,
+                   "[\(label)] header 底部應在面板內 headerMinY=\(p.headerMinY)")
+        try expect(p.headerMinY + p.headerHeight <= contentH + 1,
+                   "[\(label)] header 頂部超出 contentSize headerMaxY=\(p.headerMinY + p.headerHeight) contentH=\(contentH)")
         try expect(p.refreshVisible,
                    "[\(label)] 重新整理按鈕應可見")
         try expect(p.refreshMinY >= 0,
@@ -145,6 +164,9 @@ struct PanelLayoutProbe {
     var contentSize: NSSize
     var headerHeight: CGFloat
     var headerMinY: CGFloat
+    var titleMinY: CGFloat
+    var statusMinY: CGFloat
+    var statusHeight: CGFloat
     var refreshVisible: Bool
     var refreshMaxX: CGFloat
     var refreshMinY: CGFloat
