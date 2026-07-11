@@ -7,6 +7,11 @@ A lightweight macOS **menu bar** app that shows your official **Claude**, **Code
 
 Built with native AppKit (`NSStatusItem` + `NSPopover`). No Dock icon, no background server, no third‑party telemetry. It reads the credentials already stored on your machine by the official desktop apps / CLIs and calls each provider's own usage endpoint.
 
+<p align="center">
+  <img src="Assets/screenshots/popover.png" width="370" alt="Menu bar popover showing Claude, Codex, Gemini and Grok usage bars">
+  <img src="Assets/screenshots/preferences.png" width="350" alt="Preferences window: language, poll interval, providers and visible buckets">
+</p>
+
 ## Install (prebuilt)
 
 1. Download `UsageMeter-*.dmg` from [Releases](../../releases).
@@ -110,7 +115,7 @@ swift run UsageMeter --once       # live fetch printout
 1. ✅ Sparkle integration + appcast pipeline  
 2. ✅ `SPARKLE_PRIVATE_KEY` on Actions; signed appcast enforced on each tag (CI fails if unsigned)  
 3. ⬜ Apple Developer ID + notarization secrets (see `docs/DISTRIBUTION.md`)  
-4. ⬜ README screenshots  
+4. ✅ README screenshots  
 5. ⬜ Optional universal binary  
 
 PRs welcome. Please run `./scripts/verify.sh` before opening a PR.

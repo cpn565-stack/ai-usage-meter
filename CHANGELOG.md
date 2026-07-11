@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Release CI: Sparkle build number** — `release.yml` used `github.run_number` (would have produced build ~4, lower than the shipped build 21, so Sparkle would never offer the update). Now uses `git rev-list --count HEAD` with `fetch-depth: 0`, matching local `package.sh`.
 - **Release CI: unsigned appcast guard** — tagging without `SPARKLE_PRIVATE_KEY` used to silently publish (and commit to `main`) an appcast without `edSignature`, which existing installs would reject. CI now hard-fails instead (`REQUIRE_ED_SIGNATURE=1` in `generate-appcast.sh`).
 
+### Added
+- README screenshots (menu bar popover + Preferences).
+
 ### Changed
 - `release.yml` supports `workflow_dispatch` dry runs: builds DMG + signed appcast and uploads them as an artifact without publishing a Release or touching `main`.
 - Moved root-level `spike_*.py` dev scripts into `scripts/`.
