@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README screenshots (menu bar popover + Preferences).
 
 ### Changed
+- README screenshots refreshed from 0.2.4 (21) UI (was 0.2.3 in Preferences).
 - `release.yml` supports `workflow_dispatch` dry runs: builds DMG + signed appcast and uploads them as an artifact without publishing a Release or touching `main`.
 - Moved root-level `spike_*.py` dev scripts into `scripts/`.
 
