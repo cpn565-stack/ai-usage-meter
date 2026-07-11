@@ -96,6 +96,41 @@ final class Prefs: ObservableObject {
         if on { set.insert(key) } else { set.remove(key) }
         enabled[provider] = Array(set)
     }
+
+    /// 測試用快照(避免 self-test 弄髒使用者偏好)。
+    struct Snapshot {
+        var language: AppLanguage
+        var pollInterval: PollInterval
+        var menuProvider: String
+        var menuBucketKey: String
+        var disabledProviders: [String]
+        var enabled: [String: [String]]
+    }
+
+    func snapshotForTest() -> Snapshot {
+        Snapshot(language: language, pollInterval: pollInterval,
+                 menuProvider: menuProvider, menuBucketKey: menuBucketKey,
+                 disabledProviders: disabledProviders, enabled: enabled)
+    }
+
+    func restoreForTest(_ s: Snapshot) {
+        language = s.language
+        pollInterval = s.pollInterval
+        menuProvider = s.menuProvider
+        menuBucketKey = s.menuBucketKey
+        disabledProviders = s.disabledProviders
+        enabled = s.enabled
+    }
+
+    /// 測試用:啟用全部 provider,並覆寫各家顯示的 bucket keys。
+    func applyTestDisplay(enabledProviders: [ProviderID], buckets: [ProviderID: [String]]) {
+        disabledProviders = ProviderID.allCases
+            .filter { !enabledProviders.contains($0) }
+            .map(\.rawValue)
+        var next: [String: [String]] = [:]
+        for (p, keys) in buckets { next[p.rawValue] = keys }
+        enabled = next
+    }
 }
 
 /// 重置倒數的共用格式:>1 天用「6d22h」、>1 小時用「3h26m」、否則「45m」。

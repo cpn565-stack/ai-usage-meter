@@ -1,7 +1,7 @@
 import AppKit
 import Combine
 
-private let panelWidth: CGFloat = 320
+let panelWidth: CGFloat = 320
 private let listMaxHeight: CGFloat = 460
 
 /// 點選單列 icon 後彈出的面板(取代 SwiftUI MenuView)。
@@ -178,6 +178,32 @@ final class PanelViewController: NSViewController {
     }
 
     @objc private func refreshTapped() { Task { await store.refreshAll() } }
+
+    /// Self-test:載入 view、rebuild,回傳關鍵布局量測。
+    func probeLayoutForTest() -> PanelLayoutProbe {
+        _ = view
+        rebuild()
+        view.layoutSubtreeIfNeeded()
+        let refreshFrame = refreshButton.convert(refreshButton.bounds, to: view)
+        let headerFrame = headerStack.convert(headerStack.bounds, to: view)
+        var rightmost: CGFloat = 0
+        func walk(_ v: NSView) {
+            let f = v.convert(v.bounds, to: self.view)
+            rightmost = max(rightmost, f.maxX)
+            for c in v.subviews { walk(c) }
+        }
+        walk(view)
+        return PanelLayoutProbe(
+            contentSize: preferredContentSize,
+            headerHeight: headerFrame.height,
+            headerMinY: headerFrame.minY,
+            refreshVisible: !refreshButton.isHidden,
+            refreshMaxX: refreshFrame.maxX,
+            refreshMinY: refreshFrame.minY,
+            rightmostContentX: rightmost,
+            panelWidth: panelWidth
+        )
+    }
 
     private func rebuild() {
         guard isViewLoaded else { return }

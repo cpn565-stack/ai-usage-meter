@@ -28,12 +28,16 @@ Built with native AppKit (`NSStatusItem` + `NSPopover`). No Dock icon, no backgr
 
 ```sh
 swift build -c release        # or: ./package.sh  → builds UsageMeter.app
+./scripts/verify.sh           # **pre-release gate**: build + parser + layout self-tests
 ./make-dmg.sh                 # builds + packages a distributable .dmg
-VERSION=0.2 ./make-dmg.sh      # builds UsageMeter-0.2.dmg with matching app version
+VERSION=0.2.1 ./make-dmg.sh   # builds UsageMeter-0.2.1.dmg with matching app version
 swift run UsageMeter --once   # headless: fetch once and print to the terminal
+swift run UsageMeter --self-test   # parsers + popover layout regression (no network)
 ```
 
-Release automation: push a tag such as `v0.2` to GitHub. CI builds the app, runs parser self-tests, packages `UsageMeter-0.2.dmg`, uploads it as a workflow artifact, and creates or updates the GitHub Release.
+Release automation: push a tag such as `v0.2.1` to GitHub. CI builds the app, runs `--self-test` (parsers **and** panel layout), packages `UsageMeter-0.2.1.dmg`, uploads it as a workflow artifact, and creates or updates the GitHub Release.
+
+**Do not tag a release unless `./scripts/verify.sh` is green.**
 
 ## Install (prebuilt)
 

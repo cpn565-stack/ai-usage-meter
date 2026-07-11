@@ -24,11 +24,15 @@ jobs:
       - name: Build (debug)
         run: swift build
 
-      - name: Parser self-test
-        run: swift run UsageMeter --self-test-parsers
+      # parsers + popover layout 回歸(高度縮放 / 不裁 header / 不裁右側)
+      - name: Self-tests
+        run: swift run UsageMeter --self-test
 
       - name: Build (release)
         run: swift build -c release
+
+      - name: Self-tests (release binary)
+        run: swift run -c release UsageMeter --self-test
 
   release:
     name: package release dmg

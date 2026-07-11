@@ -25,15 +25,50 @@ if CommandLine.arguments.contains("--diagnose") || CommandLine.arguments.contain
     exit(0)
 }
 
-// `--self-test-parsers`:用固定 JSON 測三家 parser,不碰憑證、不連網。
-if CommandLine.arguments.contains("--self-test-parsers") {
-    do {
-        for line in try ParserSelfTests.run() { print(line) }
-        exit(0)
-    } catch {
-        print("✗ Parser self-test failed:", error.localizedDescription)
-        exit(1)
+// `--self-test-parsers`:用固定 JSON 測 parser,不碰憑證、不連網。
+// `--self-test-layout`:AppKit 面板布局回歸(高度縮放 / 不裁切)。
+// `--self-test`:全部 self-test(發版前請跑這個)。
+if CommandLine.arguments.contains("--self-test")
+    || CommandLine.arguments.contains("--self-test-parsers")
+    || CommandLine.arguments.contains("--self-test-layout") {
+    let runParsers = CommandLine.arguments.contains("--self-test")
+        || CommandLine.arguments.contains("--self-test-parsers")
+    let runLayout = CommandLine.arguments.contains("--self-test")
+        || CommandLine.arguments.contains("--self-test-layout")
+    var failed = false
+    if runParsers {
+        do {
+            for line in try ParserSelfTests.run() { print(line) }
+        } catch {
+            print("✗ Parser self-test failed:", error.localizedDescription)
+            failed = true
+        }
     }
+    if runLayout {
+        // Layout 必須在主執行緒跑 AppKit。
+        let sem = DispatchSemaphore(value: 0)
+        var layoutError: Error?
+        var layoutLines: [String] = []
+        DispatchQueue.main.async {
+            do {
+                layoutLines = try PanelLayoutSelfTests.run()
+            } catch {
+                layoutError = error
+            }
+            sem.signal()
+        }
+        // 驅動 main runloop 直到測完(否則 async block 不會執行)。
+        while sem.wait(timeout: .now() + 0.05) == .timedOut {
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
+        if let layoutError {
+            print("✗ Layout self-test failed:", layoutError.localizedDescription)
+            failed = true
+        } else {
+            for line in layoutLines { print(line) }
+        }
+    }
+    exit(failed ? 1 : 0)
 }
 
 // `--once`:無頭模式,抓一次用量印出後結束(方便終端機驗證)。

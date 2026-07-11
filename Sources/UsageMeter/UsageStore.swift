@@ -25,9 +25,12 @@ final class UsageStore: ObservableObject {
     private var inFlightProviders = Set<ProviderID>()
     private var cancellables = Set<AnyCancellable>()
 
-    init() {
+    /// - Parameter skipInitialRefresh: self-test / 布局探測用,不連網。
+    init(skipInitialRefresh: Bool = false) {
         for p in ProviderID.allCases { results[p] = .empty(p) }
-        Task { await refreshAll() }
+        if !skipInitialRefresh {
+            Task { await refreshAll() }
+        }
         // 更新頻率改變時重設計時器。
         Prefs.shared.$pollInterval
             .sink { [weak self] iv in self?.reschedule(iv) }
@@ -40,6 +43,14 @@ final class UsageStore: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in await self?.refreshAll() }
         }
+    }
+
+    /// 測試用:寫入固定用量結果,不觸發網路。
+    func replaceResultsForTest(_ map: [ProviderID: ProviderUsage]) {
+        results = map
+        lastRefresh = Date()
+        lastSuccessfulRefresh = Date()
+        isRefreshing = false
     }
 
     /// 資料過舊才重抓(用於打開選單時)。
