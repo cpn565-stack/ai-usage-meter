@@ -16,3 +16,6 @@ __pycache__/
 
 # Secrets — real values stay local; commit Secrets.example.swift only
 Sources/UsageMeter/Secrets.swift
+
+# Sparkle / Apple signing secrets (never commit)
+secrets/

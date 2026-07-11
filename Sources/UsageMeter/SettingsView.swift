@@ -77,11 +77,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             cb.identifier = NSUserInterfaceItemIdentifier(p.rawValue)
             return cb
         }
+        let checkUpdate = NSButton(title: Loc.tr("btn.checkUpdate", lang),
+                                   target: self, action: #selector(checkUpdateTapped))
+        checkUpdate.bezelStyle = .rounded
         addSection(Loc.tr("set.general", lang), rows: [
             labeledRow(Loc.tr("set.language", lang), langPopup),
             labeledRow(Loc.tr("set.interval", lang), intervalPopup),
             launch,
             labeledRow(Loc.tr("set.version", lang), makeLabel(appVersion(), size: 13, color: .secondaryLabelColor)),
+            checkUpdate,
         ])
         addSection(Loc.tr("set.providers", lang), rows: providerChecks)
 
@@ -178,6 +182,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     // MARK: - Actions
+
+    @objc private func checkUpdateTapped(_ sender: Any?) {
+        AppUpdater.shared.checkForUpdates()
+    }
 
     @objc private func languageChanged(_ sender: NSPopUpButton) {
         Prefs.shared.language = AppLanguage.allCases[sender.indexOfSelectedItem]

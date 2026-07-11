@@ -99,14 +99,19 @@ swift run UsageMeter --diagnose   # credential status only
 swift run UsageMeter --once       # live fetch printout
 ```
 
+## Auto-update (Sparkle) & notarization
+
+- In-app: **Preferences → 檢查更新…** (Sparkle 2).
+- Feed: `appcast/appcast.xml` on `main` (see `SUFeedURL` in packaged Info.plist).
+- Full setup (EdDSA keys, appcast generation, Developer ID, notarization CI secrets): **[docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)**.
+
 ## Contributing / public roadmap
 
-Ideas that help others adopt the app:
-
-1. **Apple Developer ID + notarization** — removes Gatekeeper “Open Anyway” friction.
-2. Screenshots in this README.
-3. Optional Intel / universal binary if you need it.
-4. Issues/Discussions for API breakages (vendors change endpoints often).
+1. ✅ Sparkle integration + appcast pipeline (draft)  
+2. ⬜ Set `SPARKLE_PRIVATE_KEY` on Actions; ship signed appcast on each tag  
+3. ⬜ Apple Developer ID + notarization secrets (see `docs/DISTRIBUTION.md`)  
+4. ⬜ README screenshots  
+5. ⬜ Optional universal binary  
 
 PRs welcome. Please run `./scripts/verify.sh` before opening a PR.
 

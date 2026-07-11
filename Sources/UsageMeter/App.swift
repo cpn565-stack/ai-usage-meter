@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)   // 不顯示 Dock 圖示
         store = UsageStore()
         popover = NSPopover()
+        AppUpdater.shared.start()               // Sparkle 自動更新(依 SUFeedURL)
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
