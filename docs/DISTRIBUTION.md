@@ -48,6 +48,30 @@ On a Mac with the Sparkle tools (after `swift build`):
 - **Private** key → `secrets/sparkle_ed_private.key` (**gitignored**).  
   Add to GitHub Actions secret **`SPARKLE_PRIVATE_KEY`** (file contents).
 
+### Keychain prompts when signing (local only)
+
+`generate_keys` stores the private key in the **login Keychain** as  
+「Private key for signing Sparkle updates」.
+
+**Why「永遠允許」still pops every time (this is expected on our setup):**
+
+1. The item’s ACL only lists **`generate_keys`**, not `sign_update`.
+2. `sign_update` is **adhoc-signed** (no Developer ID / Team ID), so macOS often **won’t persist** “Always Allow”.
+3. A script bug used `generate_appcast -f` (legacy **DSA** flag) instead of `--ed-key-file` (EdDSA), so Sparkle still read the Keychain — fixed.
+4. Release scripts / retries can invoke signing **multiple times** → several identical dialogs.
+5. Diagnostic tools (`security dump-keychain`, `security find-generic-password -g`) can flood the same dialog.
+
+This is **developer-side only**. End users of UsageMeter never see it.
+
+**Fix (do this once):**
+
+1. Keep `secrets/sparkle_ed_private.key` (gitignored) — already exported.
+2. Use `scripts/generate-appcast.sh` (now **file-only**, never Keychain).
+3. Optional: open **鑰匙圈存取** → 搜尋 `Sparkle` → 刪除  
+   「Private key for signing Sparkle updates」  
+   so nothing can prompt you again (public key in the app is unchanged).
+4. Prefer CI signing via secret `SPARKLE_PRIVATE_KEY`.
+
 Current public key (for this repo’s generated keychain key):
 
 ```text

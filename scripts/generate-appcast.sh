@@ -44,9 +44,9 @@ mkdir -p "$STAGE"
 cp "$DMG" "$STAGE/"
 
 if [ -n "$GEN_APPCAST" ] && [ -f "$KEY_FILE" ]; then
-  echo "▶ generate_appcast (Sparkle)…"
-  # generate_appcast 掃描目錄內 dmg/zip 並寫 appcast
-  "$GEN_APPCAST" -f "$KEY_FILE" "$STAGE" 2>&1 || true
+  echo "▶ generate_appcast --ed-key-file（勿用 -f，那是舊 DSA）…"
+  # -f = DSA only；EdDSA 必須 --ed-key-file，否則會讀 Keychain 並連彈密碼框
+  "$GEN_APPCAST" --ed-key-file "$KEY_FILE" "$STAGE" 2>&1 || true
   if [ -f "$STAGE/appcast.xml" ]; then
     # 修正 enclosure URL 為 GitHub Releases 永久連結
     sed -E "s#url=\"[^\"]+$(basename "$DMG")\"#url=\"${DOWNLOAD_BASE}/$(basename "$DMG")\"#g" \
@@ -70,14 +70,19 @@ do
   if [ -x "$cand" ]; then SIGN_UPDATE="$cand"; break; fi
 done
 if [ -n "$SIGN_UPDATE" ]; then
-  # 優先 Keychain 內的 key;失敗再 -ed-key-file
-  LINE="$("$SIGN_UPDATE" "$DMG" 2>/dev/null | tail -1 || true)"
-  if [ -z "$LINE" ] && [ -f "$KEY_FILE" ]; then
+  # 只用檔案私鑰，永遠不走 Keychain。
+  # 原因：Keychain item 的 ACL 只授權 generate_keys，不授權 sign_update；
+  # adhoc 簽名的工具按「永遠允許」也常不生效，每次 release 會連彈多次密碼框。
+  if [ ! -f "$KEY_FILE" ]; then
+    echo "✗ 缺少 $KEY_FILE — 請用 generate_keys -x 匯出，或從安全備份放回 secrets/" >&2
+    echo "  （刻意不讀 Keychain，避免彈出「sign_update 想存取…」）" >&2
+  else
+    echo "▶ sign_update --ed-key-file $KEY_FILE（跳過 Keychain）"
     LINE="$("$SIGN_UPDATE" --ed-key-file "$KEY_FILE" "$DMG" 2>/dev/null | tail -1 || true)"
-  fi
-  # 期望: sparkle:edSignature="..." length="..."
-  if [[ "$LINE" == sparkle:edSignature=* ]]; then
-    ED_SIG="$(printf '%s' "$LINE" | sed -E 's/.*sparkle:edSignature="([^"]+)".*/\1/')"
+    # 期望: sparkle:edSignature="..." length="..."
+    if [[ "$LINE" == sparkle:edSignature=* ]]; then
+      ED_SIG="$(printf '%s' "$LINE" | sed -E 's/.*sparkle:edSignature="([^"]+)".*/\1/')"
+    fi
   fi
 fi
 
