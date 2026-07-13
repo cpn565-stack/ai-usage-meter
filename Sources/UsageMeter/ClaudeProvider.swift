@@ -14,8 +14,10 @@ enum ClaudeProvider {
     // Claude.app 升級後改用 oauth:tokenCacheV2(舊版 oauth:tokenCache 的 token 會停止維護而過期)。優先 V2,退回 V1。
     static let cacheKeysPreferred = ["oauth:tokenCacheV2", "oauth:tokenCache"]
 
-    // safeStorage 金鑰不會輪替,讀一次後快取(之後重讀的是 config.json 檔案,不跳權限詢問)。
+    // safeStorage 金鑰不會輪替：記憶體 → Application Support 檔案 → Keychain（僅首次 / 失效時）。
+    // 避免每次 refresh 或重裝後的 ad-hoc 簽章變更就彈 Keychain 密碼框。
     private static var cachedKey: Data?
+    private static let keyFileName = "claude-safe-storage.key"
 
     struct Store {
         var cfg: [String: Any]
@@ -28,10 +30,15 @@ enum ClaudeProvider {
 
     static func safeStorageKey() throws -> Data {
         if let k = cachedKey { return k }
+        if let disk = AppSupportCache.readData(keyFileName), !disk.isEmpty {
+            cachedKey = disk
+            return disk
+        }
         guard let k = Keychain.genericPassword(service: keychainService, account: keychainAccount) else {
             throw ProviderError.noCredentials("Keychain『\(keychainService)』(需允許存取)")
         }
         cachedKey = k
+        AppSupportCache.writeData(k, name: keyFileName)
         return k
     }
 
@@ -50,7 +57,9 @@ enum ClaudeProvider {
             do {
                 plain = try Crypto.decryptElectronV10(base64Value: enc, keychainPassword: key)
             } catch {
-                cachedKey = nil   // 金鑰可能失效 → 清快取讓下次重讀
+                // 金鑰可能失效 → 清記憶體與檔案快取，下次才再問 Keychain
+                cachedKey = nil
+                AppSupportCache.remove(keyFileName)
                 lastErr = error
                 continue
             }

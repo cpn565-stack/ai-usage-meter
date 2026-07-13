@@ -28,11 +28,13 @@ struct ProviderUsage: Equatable {
     var provider: ProviderID
     var buckets: [UsageBucket]
     var plan: String?
+    /// 方案旁的補充資訊（例如 Codex 手動重置「×2 · 7/26」）。
+    var planAccessory: String? = nil
     var error: String?
     var updatedAt: Date?
 
     static func empty(_ p: ProviderID) -> ProviderUsage {
-        ProviderUsage(provider: p, buckets: [], plan: nil, error: nil, updatedAt: nil)
+        ProviderUsage(provider: p, buckets: [], plan: nil, planAccessory: nil, error: nil, updatedAt: nil)
     }
 
     /// 給 menu bar 用的「最緊繃」百分比。

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-07-13
+
+### Added
+- **Codex manual reset credits** next to plan badge (count + soonest expiry via `/wham/rate-limit-reset-credits`)
+
+### Changed
+- Codex plan `team` displays as **Business**
+- Gemini / Claude credentials cache prefers Application Support files so routine refresh no longer hits Keychain (fewer password prompts)
+
 ## [0.2.5] - 2026-07-13
 
 ### Fixed

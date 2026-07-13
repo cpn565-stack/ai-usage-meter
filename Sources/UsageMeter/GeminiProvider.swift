@@ -12,8 +12,10 @@ enum GeminiProvider {
     static let userAgent = "antigravity/windows/amd64"
     static let keychainService = "gemini"
     static let keychainAccount = "antigravity"
+    /// 舊版曾把 token 放 Keychain（每次 refresh 易彈密碼）；改存 Application Support 檔案。
     static let cacheKeychainService = "com.mike.usagemeter.gemini"
     static let cacheKeychainAccount = "antigravity"
+    private static let credsFileName = "gemini-creds.json"
 
     struct Creds { var accessToken: String; var refreshToken: String?; var expiry: Date? }
     private struct CachedCreds: Codable { var accessToken: String; var refreshToken: String?; var expiry: String? }
@@ -37,19 +39,29 @@ enum GeminiProvider {
     }
 
     private static func loadCredsFromCache() -> Creds? {
-        guard let data = Keychain.genericPassword(service: cacheKeychainService, account: cacheKeychainAccount) else {
-            return nil
+        // 1) 檔案快取（不碰 Keychain）
+        if let data = AppSupportCache.readData(credsFileName) {
+            if let creds = decodeCachedCreds(data) { return creds }
+            AppSupportCache.remove(credsFileName)
         }
-        do {
-            let cached = try JSONDecoder().decode(CachedCreds.self, from: data)
-            guard !cached.accessToken.isEmpty else { throw ProviderError.parse("UsageMeter Gemini cache 缺少 access token") }
-            return Creds(accessToken: cached.accessToken,
-                         refreshToken: cached.refreshToken,
-                         expiry: Date.fromISO(cached.expiry))
-        } catch {
+        // 2) 遷移舊 Keychain 快取 → 檔案後刪除 keychain 項
+        if let data = Keychain.genericPassword(service: cacheKeychainService, account: cacheKeychainAccount) {
+            if let creds = decodeCachedCreds(data) {
+                saveCredsToCache(creds)
+                Keychain.deleteGenericPassword(service: cacheKeychainService, account: cacheKeychainAccount)
+                return creds
+            }
             Keychain.deleteGenericPassword(service: cacheKeychainService, account: cacheKeychainAccount)
-            return nil
         }
+        return nil
+    }
+
+    private static func decodeCachedCreds(_ data: Data) -> Creds? {
+        guard let cached = try? JSONDecoder().decode(CachedCreds.self, from: data),
+              !cached.accessToken.isEmpty else { return nil }
+        return Creds(accessToken: cached.accessToken,
+                     refreshToken: cached.refreshToken,
+                     expiry: Date.fromISO(cached.expiry))
     }
 
     private static func saveCredsToCache(_ creds: Creds) {
@@ -59,11 +71,14 @@ enum GeminiProvider {
                                  refreshToken: creds.refreshToken,
                                  expiry: creds.expiry.map { f.string(from: $0) })
         guard let data = try? JSONEncoder().encode(cached) else { return }
-        try? Keychain.setGenericPassword(data, service: cacheKeychainService, account: cacheKeychainAccount)
+        AppSupportCache.writeData(data, name: credsFileName)
+        // 清掉舊 keychain 快取，避免之後再被讀到而彈窗
+        Keychain.deleteGenericPassword(service: cacheKeychainService, account: cacheKeychainAccount)
     }
 
     private static func invalidateCredsCache() {
         cachedCreds = nil
+        AppSupportCache.remove(credsFileName)
         Keychain.deleteGenericPassword(service: cacheKeychainService, account: cacheKeychainAccount)
     }
 

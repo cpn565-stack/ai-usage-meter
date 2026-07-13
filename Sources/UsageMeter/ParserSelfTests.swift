@@ -96,12 +96,12 @@ enum ParserSelfTests {
         let usage = try CodexProvider.parseUsageResponse(classic)
 
         try expect(usage.provider == .codex, "Codex provider mismatch")
-        try expect(usage.plan == "plus", "Codex plan mismatch")
+        try expect(usage.plan == "Plus", "Codex plus plan display")
         try expect(usage.buckets.map(\.key) == ["5h", "week"], "Codex classic keys mismatch")
         try expect(usage.buckets.map(\.label) == ["win.5h", "win.week"], "Codex classic labels mismatch")
         try expect(Int(usage.buckets[0].usedPercent) == 55, "Codex percent mismatch")
 
-        // 2026-07 現況：primary 變成週限（604800s）、secondary 為 null、used_percent 為整數
+        // 2026-07 現況：primary 變成週限（604800s）、secondary 為 null、used_percent 為整數、team→Business
         let weeklyOnly = Data("""
         {
           "plan_type": "team",
@@ -116,7 +116,8 @@ enum ParserSelfTests {
             "secondary_window": null
           },
           "code_review_rate_limit": null,
-          "additional_rate_limits": null
+          "additional_rate_limits": null,
+          "rate_limit_reset_credits": { "available_count": 2 }
         }
         """.utf8)
         let weekly = try CodexProvider.parseUsageResponse(weeklyOnly)
@@ -124,7 +125,37 @@ enum ParserSelfTests {
         try expect(weekly.buckets[0].key == "week", "Codex weekly primary key should be week not 5h")
         try expect(weekly.buckets[0].label == "win.week", "Codex weekly primary label")
         try expect(Int(weekly.buckets[0].usedPercent) == 68, "Codex int used_percent")
-        try expect(weekly.plan == "team", "Codex team plan")
+        try expect(weekly.plan == "Business", "Codex team plan displays as Business")
+        try expect(weekly.planAccessory != nil, "Codex reset count accessory from usage")
+        try expect(weekly.planAccessory?.contains("2") == true, "Codex reset accessory has count 2")
+
+        let creditsJSON = Data("""
+        {
+          "available_count": 2,
+          "credits": [
+            {
+              "status": "available",
+              "expires_at": "2026-07-26T23:42:57.315815Z"
+            },
+            {
+              "status": "available",
+              "expires_at": "2026-07-31T19:53:38.459744Z"
+            },
+            {
+              "status": "redeemed",
+              "expires_at": "2026-07-01T00:00:00Z"
+            }
+          ]
+        }
+        """.utf8)
+        let info = CodexProvider.parseResetCredits(creditsJSON)
+        try expect(info.count == 2, "reset credits count")
+        try expect(info.earliest != nil, "earliest expiry present")
+        let badge = CodexProvider.formatResetAccessory(count: info.count, earliest: info.earliest, lang: .en)
+        try expect(badge?.contains("2") == true, "badge has count")
+        // 本地時區顯示（UTC 7/26 23:42 在 +8 為 7/27）
+        try expect(badge?.contains("/") == true, "badge has date M/d")
+        try expect(info.earliest! < Date(timeIntervalSince1970: 1_785_500_000), "earliest is first available credit")
 
         // 窗口長度推導
         let id5h = CodexProvider.windowIdentity(seconds: 18_000, role: "primary")
@@ -133,6 +164,7 @@ enum ParserSelfTests {
         try expect(idWeek.key == "week" && idWeek.label == "win.week", "week window identity")
         let idDay = CodexProvider.windowIdentity(seconds: 86_400, role: "primary")
         try expect(idDay.key == "day" && idDay.label == "win.day", "day window identity")
+        try expect(CodexProvider.displayPlan("team") == "Business", "team→Business")
     }
 
     private static func testGeminiModelsParsing() throws {

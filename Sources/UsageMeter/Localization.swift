@@ -74,5 +74,8 @@ enum Loc {
         "grok.imagine":[.zhHant: "Imagine",   .ja: "Imagine",        .en: "Imagine"],
         "grok.plugins":[.zhHant: "Plugins",   .ja: "Plugins",        .en: "Plugins"],
         "grok.other":  [.zhHant: "其他",     .ja: "その他",       .en: "Other"],
+        // Codex 手動重置額度（plan 旁）：「重置 ×2 · 7/26」
+        "codex.reset.badge": [.zhHant: "重置 ×%d · %@", .ja: "リセット ×%d · %@", .en: "×%d · %@"],
+        "codex.reset.count": [.zhHant: "重置 ×%d",     .ja: "リセット ×%d",     .en: "×%d resets"],
     ]
 }

@@ -277,6 +277,9 @@ final class PanelViewController: NSViewController {
         head.spacing = 6
         head.alignment = .centerY
         if let plan = usage.plan { head.addArrangedSubview(makeBadge(plan)) }
+        if let extra = usage.planAccessory, !extra.isEmpty {
+            head.addArrangedSubview(makeBadge(extra))
+        }
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         head.addArrangedSubview(spacer)

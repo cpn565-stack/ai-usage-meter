@@ -8,6 +8,8 @@ enum CodexProvider {
     static let tokenURL = "https://auth.openai.com/oauth/token"
     static let clientID = "app_EMoamEEZ73f0CkXaXp7hrann"
     static let usageURL = "https://chatgpt.com/backend-api/codex/usage"
+    /// 手動重置額度明細（次數 + 到期日）；與 /codex/usage 同源帳號。
+    static let resetCreditsURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
 
     struct Auth { var root: [String: Any]; var tokens: [String: Any] }
 
@@ -60,13 +62,27 @@ enum CodexProvider {
         return (at, a)
     }
 
-    static func callUsage(_ token: String, _ accountId: String) async throws -> (Int, Data) {
-        try await Net.get(usageURL, headers: [
+    private static func apiHeaders(_ token: String, _ accountId: String) -> [String: String] {
+        var h: [String: String] = [
             "Authorization": "Bearer \(token)",
-            "ChatGPT-Account-Id": accountId,
             "Accept": "application/json",
             "User-Agent": "ai-usage-meter/0.1",
-        ])
+            "OpenAI-Beta": "codex-1",
+            "originator": "Codex Desktop",
+        ]
+        if !accountId.isEmpty {
+            h["ChatGPT-Account-Id"] = accountId
+            h["ChatGPT-Account-ID"] = accountId
+        }
+        return h
+    }
+
+    static func callUsage(_ token: String, _ accountId: String) async throws -> (Int, Data) {
+        try await Net.get(usageURL, headers: apiHeaders(token, accountId))
+    }
+
+    static func callResetCredits(_ token: String, _ accountId: String) async throws -> (Int, Data) {
+        try await Net.get(resetCreditsURL, headers: apiHeaders(token, accountId))
     }
 
     static func fetch() async throws -> ProviderUsage {
@@ -86,7 +102,18 @@ enum CodexProvider {
         if code == 429 { throw ProviderError.rateLimited }
         if code == 401 { throw ProviderError.tokenExpired }
         guard code == 200 else { throw ProviderError.http(code) }
-        return try parseUsageResponse(body)
+
+        var usage = try parseUsageResponse(body)
+
+        // 手動重置：獨立端點有到期日；失敗時仍保留 usage 內的 available_count（無日期）
+        if let (rc, rbody) = try? await callResetCredits(token, accountId), rc == 200 {
+            let info = parseResetCredits(rbody)
+            usage.planAccessory = formatResetAccessory(count: info.count, earliest: info.earliest)
+        } else if usage.planAccessory == nil {
+            // parseUsageResponse 可能已從 usage JSON 填了 count-only accessory
+        }
+
+        return usage
     }
 
     static func parseUsageResponse(_ data: Data) throws -> ProviderUsage {
@@ -132,8 +159,76 @@ enum CodexProvider {
         guard !buckets.isEmpty else {
             throw ProviderError.apiChanged("Codex usage 回應沒有任何可用的 rate limit 窗口。")
         }
-        return ProviderUsage(provider: .codex, buckets: buckets,
-                             plan: obj["plan_type"] as? String, error: nil, updatedAt: Date())
+
+        // usage 內常只有 available_count，無到期明細
+        var accessory: String? = nil
+        if let block = obj["rate_limit_reset_credits"] as? [String: Any],
+           let n = number(block["available_count"]), n > 0 {
+            accessory = formatResetAccessory(count: Int(n), earliest: nil)
+        }
+
+        return ProviderUsage(
+            provider: .codex,
+            buckets: buckets,
+            plan: displayPlan(obj["plan_type"] as? String),
+            planAccessory: accessory,
+            error: nil,
+            updatedAt: Date()
+        )
+    }
+
+    /// API plan_type → 顯示名（team 已更名 Business）。
+    static func displayPlan(_ planType: String?) -> String? {
+        guard let raw = planType?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        switch raw.lowercased() {
+        case "team", "business": return "Business"
+        case "plus": return "Plus"
+        case "pro": return "Pro"
+        case "free": return "Free"
+        case "enterprise": return "Enterprise"
+        default: return raw
+        }
+    }
+
+    struct ResetCreditsInfo: Equatable {
+        var count: Int
+        var earliest: Date?
+    }
+
+    static func parseResetCredits(_ data: Data) -> ResetCreditsInfo {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return ResetCreditsInfo(count: 0, earliest: nil)
+        }
+        let count = Int(number(obj["available_count"]) ?? 0)
+        var earliest: Date?
+        if let credits = obj["credits"] as? [[String: Any]] {
+            for c in credits {
+                let status = (c["status"] as? String)?.lowercased() ?? ""
+                // available / active 都算可用
+                guard status == "available" || status == "active" else { continue }
+                guard let exp = Date.fromISO(c["expires_at"] as? String) else { continue }
+                if let cur = earliest {
+                    if exp < cur { earliest = exp }
+                } else {
+                    earliest = exp
+                }
+            }
+        }
+        return ResetCreditsInfo(count: count, earliest: earliest)
+    }
+
+    /// 方案旁文案：「重置 ×2 · 7/26」；無數則 nil。
+    static func formatResetAccessory(count: Int, earliest: Date?, lang: AppLanguage = .system) -> String? {
+        guard count > 0 else { return nil }
+        if let earliest {
+            let f = DateFormatter()
+            f.dateFormat = "M/d"
+            let day = f.string(from: earliest)
+            return String(format: Loc.tr("codex.reset.badge", lang), count, day)
+        }
+        return String(format: Loc.tr("codex.reset.count", lang), count)
     }
 
     /// 解析單一窗口。`value` 可為 null（略過）。

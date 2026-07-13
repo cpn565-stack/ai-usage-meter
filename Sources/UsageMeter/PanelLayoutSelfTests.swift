@@ -133,7 +133,9 @@ enum PanelLayoutSelfTests {
                     ("5h", "win.5h", 100),
                     ("week", "win.week", 24),
                 ]),
-                plan: "team", error: nil, updatedAt: Date()),
+                plan: "Business",
+                planAccessory: "重置 ×2 · 7/26",
+                error: nil, updatedAt: Date()),
             .gemini: ProviderUsage(
                 provider: .gemini,
                 buckets: buckets([
