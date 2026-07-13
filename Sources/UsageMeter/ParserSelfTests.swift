@@ -83,7 +83,8 @@ enum ParserSelfTests {
     }
 
     private static func testCodexUsageParsing() throws {
-        let data = Data("""
+        // 經典：5h + week（無 limit_window_seconds 時依 role 回退）
+        let classic = Data("""
         {
           "plan_type": "plus",
           "rate_limit": {
@@ -92,12 +93,46 @@ enum ParserSelfTests {
           }
         }
         """.utf8)
-        let usage = try CodexProvider.parseUsageResponse(data)
+        let usage = try CodexProvider.parseUsageResponse(classic)
 
         try expect(usage.provider == .codex, "Codex provider mismatch")
         try expect(usage.plan == "plus", "Codex plan mismatch")
-        try expect(usage.buckets.map(\.key) == ["5h", "week"], "Codex buckets mismatch")
+        try expect(usage.buckets.map(\.key) == ["5h", "week"], "Codex classic keys mismatch")
+        try expect(usage.buckets.map(\.label) == ["win.5h", "win.week"], "Codex classic labels mismatch")
         try expect(Int(usage.buckets[0].usedPercent) == 55, "Codex percent mismatch")
+
+        // 2026-07 現況：primary 變成週限（604800s）、secondary 為 null、used_percent 為整數
+        let weeklyOnly = Data("""
+        {
+          "plan_type": "team",
+          "rate_limit": {
+            "allowed": true,
+            "primary_window": {
+              "used_percent": 68,
+              "limit_window_seconds": 604800,
+              "reset_after_seconds": 600112,
+              "reset_at": 1784526349
+            },
+            "secondary_window": null
+          },
+          "code_review_rate_limit": null,
+          "additional_rate_limits": null
+        }
+        """.utf8)
+        let weekly = try CodexProvider.parseUsageResponse(weeklyOnly)
+        try expect(weekly.buckets.count == 1, "Codex weekly-only should skip null secondary")
+        try expect(weekly.buckets[0].key == "week", "Codex weekly primary key should be week not 5h")
+        try expect(weekly.buckets[0].label == "win.week", "Codex weekly primary label")
+        try expect(Int(weekly.buckets[0].usedPercent) == 68, "Codex int used_percent")
+        try expect(weekly.plan == "team", "Codex team plan")
+
+        // 窗口長度推導
+        let id5h = CodexProvider.windowIdentity(seconds: 18_000, role: "primary")
+        try expect(id5h.key == "5h" && id5h.label == "win.5h", "5h window identity")
+        let idWeek = CodexProvider.windowIdentity(seconds: 604_800, role: "primary")
+        try expect(idWeek.key == "week" && idWeek.label == "win.week", "week window identity")
+        let idDay = CodexProvider.windowIdentity(seconds: 86_400, role: "primary")
+        try expect(idDay.key == "day" && idDay.label == "win.day", "day window identity")
     }
 
     private static func testGeminiModelsParsing() throws {

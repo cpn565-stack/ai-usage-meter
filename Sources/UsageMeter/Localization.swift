@@ -35,7 +35,9 @@ enum Loc {
     private static let table: [String: [AppLanguage: String]] = [
         "app.title":   [.zhHant: "AI 用量",   .ja: "AI 使用量",       .en: "AI Usage"],
         "win.5h":      [.zhHant: "5 小時",    .ja: "5時間",          .en: "5h"],
+        "win.day":     [.zhHant: "日",        .ja: "日",             .en: "Day"],
         "win.week":    [.zhHant: "週",        .ja: "週間",           .en: "Week"],
+        "win.month":   [.zhHant: "月",        .ja: "月",             .en: "Month"],
         "row.loading": [.zhHant: "讀取中…",   .ja: "読み込み中…",     .en: "Loading…"],
         "row.disabled":[.zhHant: "已停用",    .ja: "無効",           .en: "Disabled"],
         "row.noProviders":[.zhHant:"沒有啟用的來源", .ja:"有効な読み取り元なし", .en:"No enabled sources"],
