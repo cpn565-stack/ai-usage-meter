@@ -1,15 +1,51 @@
-<?xml version="1.0" standalone="yes"?>
-<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
-    <channel>
-        <title>UsageMeter</title>
-        <item>
-            <title>0.2.5</title>
-            <pubDate>Mon, 13 Jul 2026 08:50:03 +0000</pubDate>
-            <sparkle:version>30</sparkle:version>
-            <sparkle:shortVersionString>0.2.5</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/cpn565-stack/ai-usage-meter/releases/download/v0.2.5/UsageMeter-0.2.5.dmg" length="2152242" type="application/octet-stream" sparkle:edSignature="vThP/dn88ENxVcqnXOPlPAOP5JxT+48yn3Jybih1s+QHWCS9N8xI2UDpkHt/moAb47yWgcLN2w+YnhGPQiOSDQ=="/>
-        </item>
-    </channel>
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>UsageMeter</title>
+    <link>https://github.com/cpn565-stack/ai-usage-meter</link>
+    <description>UsageMeter updates</description>
+    <language>en</language>
+    <item>
+      <title>UsageMeter 0.2.6</title>
+      <pubDate>Mon, 13 Jul 2026 09:41:00 +0000</pubDate>
+      <description><![CDATA[<h3>0.2.6</h3><ul><li>Codex: Business plan + manual reset credits (count &amp; soonest expiry)</li><li>Fewer Keychain password prompts (file cache for Claude/Gemini)</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/cpn565-stack/ai-usage-meter/releases/download/v0.2.6/UsageMeter-0.2.6.dmg"
+        sparkle:version="31"
+        sparkle:shortVersionString="0.2.6"
+        length="2158441"
+        type="application/octet-stream"
+        sparkle:edSignature="Dk+3NyXkSbrffi1/Td+wmVK1SGYn8jAYznmL7Vj6TG7w7w+ufOIO9mzM03VeV3IiCtj1+YuRFNS0DmZ98Z35AQ=="
+      />
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+    </item>
+    <item>
+      <title>UsageMeter 0.2.5</title>
+      <pubDate>Mon, 13 Jul 2026 08:47:46 +0000</pubDate>
+      <description><![CDATA[<h3>0.2.5</h3><ul><li>Codex: window labels follow API limit length (no more hard-coded 5h)</li><li>Release CI: Sparkle build number + unsigned appcast guard</li><li>README screenshots</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/cpn565-stack/ai-usage-meter/releases/download/v0.2.5/UsageMeter-0.2.5.dmg"
+        sparkle:version="29"
+        sparkle:shortVersionString="0.2.5"
+        length="2158621"
+        type="application/octet-stream"
+        sparkle:edSignature="g06OjUh2lsAsY7qTmYKI6i+/3ppVSwIkTeqCNsQRKz/S0RTR+DVsD4WJyzchzmrtLgB6kWMidQGcWBERkoXSDQ=="
+      />
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+    </item>
+    <item>
+      <title>UsageMeter 0.2.4</title>
+      <pubDate>Sat, 11 Jul 2026 10:01:15 +0000</pubDate>
+      <description><![CDATA[<h3>0.2.4</h3><ul><li>Sparkle auto-update</li><li>Grok Other bucket</li><li>Gemini / Antigravity refresh fixes</li><li>MIT license + public release docs</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/cpn565-stack/ai-usage-meter/releases/download/v0.2.4/UsageMeter-0.2.4.dmg"
+        sparkle:version="21"
+        sparkle:shortVersionString="0.2.4"
+        length="2168637"
+        type="application/octet-stream"
+        sparkle:edSignature="KFY4MF6O9cojrRLI+Y3Xjy1DzmiaaYmv8minbKPpgIOB/PCYQiCFENa/maAY2ljbBl4fd7LodFrcmMFjy3nqDA=="
+      />
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+    </item>
+  </channel>
 </rss>
