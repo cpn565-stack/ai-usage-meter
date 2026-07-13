@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-07-13
+
 ### Fixed
 - **Codex window labels** — no longer hardcode primary as「5 小時」/ secondary as「週」. Labels follow API `limit_window_seconds` (e.g. when OpenAI drops the 5h window and only a weekly limit remains). Null windows skipped; int `used_percent` supported.
 - **Release CI: Sparkle build number** — `release.yml` used `github.run_number` (would have produced build ~4, lower than the shipped build 21, so Sparkle would never offer the update). Now uses `git rev-list --count HEAD` with `fetch-depth: 0`, matching local `package.sh`.
