@@ -1,51 +1,15 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
-  <channel>
-    <title>UsageMeter</title>
-    <link>https://github.com/cpn565-stack/ai-usage-meter</link>
-    <description>UsageMeter updates</description>
-    <language>en</language>
-    <item>
-      <title>UsageMeter 0.2.7</title>
-      <pubDate>Tue, 15 Jul 2026 01:50:30 +0000</pubDate>
-      <description><![CDATA[<h3>0.2.7</h3><ul><li>Grok: tolerate null/sparse billing responses (no more stuck API-changed error)</li><li>Products missing usagePercent treated as 0%; money-format fallback</li></ul>]]></description>
-      <enclosure
-        url="https://github.com/cpn565-stack/ai-usage-meter/releases/download/v0.2.7/UsageMeter-0.2.7.dmg"
-        sparkle:version="35"
-        sparkle:shortVersionString="0.2.7"
-        length="2164128"
-        type="application/octet-stream"
-        sparkle:edSignature="hKCLK2xR+94X+Vk+NXG4uj9W+LLrlb3xPCMYdsoBrqo1/dELh/vABhwbI20XIoaUub4xjJV6Y1t0fhWFv8apCA=="
-      />
-      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-    </item>
-    <item>
-      <title>UsageMeter 0.2.6</title>
-      <pubDate>Mon, 13 Jul 2026 09:43:04 +0000</pubDate>
-      <description><![CDATA[<h3>0.2.6</h3><ul><li>Codex: Business plan + manual reset credits</li><li>Fewer Keychain password prompts</li></ul>]]></description>
-      <enclosure
-        url="https://github.com/cpn565-stack/ai-usage-meter/releases/download/v0.2.6/UsageMeter-0.2.6.dmg"
-        sparkle:version="33"
-        sparkle:shortVersionString="0.2.6"
-        length="2149999"
-        type="application/octet-stream"
-        sparkle:edSignature="6ejZq8QoGRk7V/Moqti1jyfLYFsB7uH1NfiwDJCj3ge7akongVOr2oDqdbcXrb+83xThbwdkIO82lr1VD21kAQ=="
-      />
-      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-    </item>
-    <item>
-      <title>UsageMeter 0.2.5</title>
-      <pubDate>Mon, 13 Jul 2026 08:47:46 +0000</pubDate>
-      <description><![CDATA[<h3>0.2.5</h3><ul><li>Codex: window labels follow API limit length</li></ul>]]></description>
-      <enclosure
-        url="https://github.com/cpn565-stack/ai-usage-meter/releases/download/v0.2.5/UsageMeter-0.2.5.dmg"
-        sparkle:version="29"
-        sparkle:shortVersionString="0.2.5"
-        length="2158621"
-        type="application/octet-stream"
-        sparkle:edSignature="g06OjUh2lsAsY7qTmYKI6i+/3ppVSwIkTeqCNsQRKz/S0RTR+DVsD4WJyzchzmrtLgB6kWMidQGcWBERkoXSDQ=="
-      />
-      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-    </item>
-  </channel>
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>UsageMeter</title>
+        <item>
+            <title>0.2.7</title>
+            <pubDate>Wed, 15 Jul 2026 01:52:04 +0000</pubDate>
+            <sparkle:version>36</sparkle:version>
+            <sparkle:shortVersionString>0.2.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/cpn565-stack/ai-usage-meter/releases/download/v0.2.7/UsageMeter-0.2.7.dmg" length="2139673" type="application/octet-stream" sparkle:edSignature="5/Va/cjXwiJZi4zl00gC5C6+9UGto/PKr65i98EsIvhZNY0nfJy47QtydeMRU9ZjFhUvqj3rVBfbonnQy8WBDg=="/>
+        </item>
+    </channel>
 </rss>
