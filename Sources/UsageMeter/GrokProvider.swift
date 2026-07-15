@@ -130,14 +130,20 @@ enum GrokProvider {
 
     // MARK: - Fetch
 
-    static func callBilling(_ token: String) async throws -> (Int, Data) {
-        try await Net.get(billingURL, headers: [
+    private static let billingMoneyURL = "https://cli-chat-proxy.grok.com/v1/billing"
+
+    private static func billingHeaders(_ token: String) -> [String: String] {
+        [
             "Authorization": "Bearer \(token)",
             "Accept": "application/json",
             "User-Agent": userAgent,
             "Origin": "https://grok.com",
             "Referer": "https://grok.com/",
-        ])
+        ]
+    }
+
+    static func callBilling(_ token: String, url: String = billingURL) async throws -> (Int, Data) {
+        try await Net.get(url, headers: billingHeaders(token))
     }
 
     static func fetch() async throws -> ProviderUsage {
@@ -156,12 +162,28 @@ enum GrokProvider {
         if code == 429 { throw ProviderError.rateLimited }
         if code == 401 { throw ProviderError.tokenExpired }
         guard code == 200 else { throw ProviderError.http(code) }
+
+        // credits 端點有時回 creditUsagePercent/productUsage = null（空殼）
+        // → 重試一次；仍空則改打 money 格式 billing。
+        if let usage = try? parseBillingResponse(data), !usage.buckets.isEmpty {
+            return usage
+        }
+        (code, data) = try await callBilling(store.accessToken)
+        if code == 200, let usage = try? parseBillingResponse(data), !usage.buckets.isEmpty {
+            return usage
+        }
+        let (code2, data2) = try await callBilling(store.accessToken, url: billingMoneyURL)
+        if code2 == 200, let usage = try? parseBillingResponse(data2), !usage.buckets.isEmpty {
+            return usage
+        }
+        // 最後仍失敗：保留明確錯誤（若有任一成功 parse 會在上面 return）
         return try parseBillingResponse(data)
     }
 
     // MARK: - Parse
 
-    /// 解析 `?format=credits` 回傳(週額度 + 產品拆分)。
+    /// 解析 billing 回傳（`?format=credits` 週額度 + 產品拆分，或 money 式 monthlyLimit/used）。
+    /// 容忍：外層 `config` 包一層、欄位為 null、產品省略 `usagePercent`（當 0）。
     static func parseBillingResponse(_ data: Data) throws -> ProviderUsage {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ProviderError.apiChanged("Grok billing 回應不是 JSON。")
@@ -174,7 +196,7 @@ enum GrokProvider {
 
         var buckets: [UsageBucket] = []
 
-        // 總週用量(對應 UI「23% 已使用」)
+        // 總週用量(對應 UI「23% 已使用」)。null 時略過。
         if let total = number(config["creditUsagePercent"]) {
             buckets.append(UsageBucket(
                 key: "week",
@@ -186,12 +208,15 @@ enum GrokProvider {
         }
 
         // 產品拆分:對話 / Build / Imagine / Other 等
-        if let products = config["productUsage"] as? [[String: Any]] {
+        // 2026-07 起部分產品只回 product 名、省略 usagePercent → 視為 0，仍顯示列。
+        if let products = arrayOfDicts(config["productUsage"]) {
             for item in products {
-                guard let product = item["product"] as? String else { continue }
-                guard let pct = number(item["usagePercent"]) else { continue }
+                guard let product = item["product"] as? String, !product.isEmpty else { continue }
+                let pct = number(item["usagePercent"]) ?? 0
                 let meta = productMap[product]
                     ?? (stableKey(product), product, false)
+                // 避免重複 key（GrokOther / Other）
+                if buckets.contains(where: { $0.key == meta.key }) { continue }
                 buckets.append(UsageBucket(
                     key: meta.key,
                     label: meta.label,
@@ -217,6 +242,17 @@ enum GrokProvider {
             }
         }
 
+        // 有週期資訊但用量全 null：顯示 0% 週額度，避免整段 Grok 變紅字錯誤。
+        if buckets.isEmpty, resetsAt != nil || period != nil {
+            buckets.append(UsageBucket(
+                key: "week",
+                label: "win.week",
+                usedPercent: 0,
+                resetsAt: resetsAt,
+                defaultOn: true
+            ))
+        }
+
         guard !buckets.isEmpty else {
             throw ProviderError.apiChanged("Grok billing 回應缺少 creditUsagePercent / productUsage。")
         }
@@ -228,6 +264,12 @@ enum GrokProvider {
             error: nil,
             updatedAt: Date()
         )
+    }
+
+    /// JSON 陣列或 null → `[[String: Any]]?`（null / 錯誤型別回 nil）。
+    private static func arrayOfDicts(_ value: Any?) -> [[String: Any]]? {
+        if value == nil || value is NSNull { return nil }
+        return value as? [[String: Any]]
     }
 
     private static func planLabel(from config: [String: Any]) -> String {

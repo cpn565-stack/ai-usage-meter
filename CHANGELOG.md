@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-07-15
+
+### Fixed
+- **Grok billing**: tolerate null `creditUsagePercent` / `productUsage`, products missing `usagePercent` (treat as 0), and fall back to money-format billing so the row does not stay in API-changed error state
+
 ## [0.2.6] - 2026-07-13
 
 ### Added

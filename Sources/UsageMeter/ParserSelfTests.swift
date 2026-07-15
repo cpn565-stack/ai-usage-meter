@@ -222,7 +222,8 @@ enum ParserSelfTests {
 
         try expect(usage.provider == .grok, "Grok provider mismatch")
         try expect(usage.plan == "SuperGrok", "Grok plan mismatch")
-        try expect(usage.buckets.map(\.key) == ["week", "chat", "build", "imagine", "other"],
+        // GrokPlugins 省略 usagePercent → 0%，仍入 bucket（defaultOff）
+        try expect(usage.buckets.map(\.key) == ["week", "chat", "build", "imagine", "other", "plugins"],
                    "Grok buckets mismatch")
         try expect(Int(usage.buckets[0].usedPercent) == 23, "Grok total percent mismatch")
         try expect(Int(usage.buckets[1].usedPercent) == 12, "Grok chat percent mismatch")
@@ -231,6 +232,7 @@ enum ParserSelfTests {
         try expect(Int(usage.buckets[4].usedPercent) == 2, "Grok other percent mismatch")
         try expect(usage.buckets[4].label == "grok.other", "Grok other label key mismatch")
         try expect(usage.buckets[4].defaultOn == false, "Grok other should default off")
+        try expect(usage.buckets[5].usedPercent == 0, "Grok plugins missing % → 0")
         try expect(usage.buckets[0].resetsAt != nil, "Grok reset date missing")
 
         // 別名相容:API 若回 GrokOther 也應對到 other
@@ -247,6 +249,47 @@ enum ParserSelfTests {
         let aliased = try GrokProvider.parseBillingResponse(alias)
         try expect(aliased.buckets.map(\.key) == ["week", "other"], "GrokOther alias keys mismatch")
         try expect(Int(aliased.buckets[1].usedPercent) == 3, "GrokOther alias percent mismatch")
+
+        // 產品省略 usagePercent；嵌套 config
+        let sparse = Data("""
+        {
+          "config": {
+            "creditUsagePercent": 1.0,
+            "currentPeriod": {
+              "type": "USAGE_PERIOD_TYPE_WEEKLY",
+              "end": "2026-07-21T09:45:40.978386+00:00"
+            },
+            "productUsage": [
+              {"product": "GrokBuild", "usagePercent": 1.0},
+              {"product": "GrokChat"}
+            ],
+            "isUnifiedBillingUser": true
+          }
+        }
+        """.utf8)
+        let sparseUsage = try GrokProvider.parseBillingResponse(sparse)
+        try expect(sparseUsage.buckets.contains(where: { $0.key == "chat" && $0.usedPercent == 0 }),
+                   "GrokChat missing usagePercent → 0")
+        try expect(Int(sparseUsage.buckets.first(where: { $0.key == "week" })?.usedPercent ?? -1) == 1,
+                   "nested config total percent")
+
+        // API 空殼 null：仍顯示週 0%，不當 API 錯誤
+        let nullShell = Data("""
+        {
+          "creditUsagePercent": null,
+          "productUsage": null,
+          "currentPeriod": {
+            "type": "USAGE_PERIOD_TYPE_WEEKLY",
+            "end": "2026-07-21T09:45:40.978386+00:00"
+          },
+          "isUnifiedBillingUser": true
+        }
+        """.utf8)
+        let nullUsage = try GrokProvider.parseBillingResponse(nullShell)
+        try expect(nullUsage.buckets.count == 1 && nullUsage.buckets[0].key == "week",
+                   "null credits with period → week bucket")
+        try expect(nullUsage.buckets[0].usedPercent == 0, "null credits → 0%")
+        try expect(nullUsage.plan == "SuperGrok", "null shell still SuperGrok")
     }
 
     private static func testUnexpectedShapeIsApiChanged() throws {
