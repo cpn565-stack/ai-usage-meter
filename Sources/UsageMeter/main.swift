@@ -88,7 +88,11 @@ if CommandLine.arguments.contains("--once") {
                 }
                 var planBits: [String] = []
                 if let p = u.plan { planBits.append(p) }
-                if let a = u.planAccessory { planBits.append(a) }
+                let showCodexReset = await MainActor.run { Prefs.shared.showCodexResetCredits }
+                if let a = u.planAccessory,
+                   (u.provider != .codex || showCodexReset) {
+                    planBits.append(a)
+                }
                 let plan = planBits.isEmpty ? "" : " [\(planBits.joined(separator: " · "))]"
                 let cols = u.buckets.map(line).joined(separator: "  ")
                 print("\(u.provider.displayName)\(plan)  \(cols)")

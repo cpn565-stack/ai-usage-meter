@@ -123,6 +123,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
                     cb.identifier = NSUserInterfaceItemIdentifier("\(p.rawValue)|\(b.key)")
                     displayRows.append(cb)
                 }
+                // Codex：與窗口細項並列，可關閉 plan 旁「重置 ×N」徽章
+                if p == .codex {
+                    let resetCb = NSButton(checkboxWithTitle: Loc.tr("codex.reset.show", lang),
+                                           target: self, action: #selector(codexResetShowToggled))
+                    resetCb.state = Prefs.shared.showCodexResetCredits ? .on : .off
+                    displayRows.append(resetCb)
+                }
             }
         }
         addSection(Loc.tr("set.display", lang), rows: displayRows)
@@ -220,5 +227,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         guard parts.count == 2, let p = ProviderID(rawValue: parts[0]) else { return }
         let all = store.results[p]?.buckets ?? []
         Prefs.shared.toggle(p.rawValue, parts[1], on: sender.state == .on, buckets: all)
+    }
+    @objc private func codexResetShowToggled(_ sender: NSButton) {
+        Prefs.shared.showCodexResetCredits = (sender.state == .on)
     }
 }

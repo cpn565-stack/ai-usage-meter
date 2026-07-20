@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Preferences → Shown items → Codex「重置數量」**：可關閉方案旁的手動重置徽章（`重置 ×N · M/d`），與其他細項勾選相同
+
 ## [0.2.7] - 2026-07-15
 
 ### Fixed

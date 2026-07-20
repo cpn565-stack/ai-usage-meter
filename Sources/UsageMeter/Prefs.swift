@@ -52,6 +52,10 @@ final class Prefs: ObservableObject {
             }
         }
     }
+    /// Codex 方案旁的「重置 ×N · M/d」徽章；預設顯示。
+    @Published var showCodexResetCredits: Bool {
+        didSet { d.set(showCodexResetCredits, forKey: "showCodexResetCredits") }
+    }
 
     private init() {
         language = AppLanguage(rawValue: d.string(forKey: "language") ?? "") ?? .system
@@ -64,6 +68,12 @@ final class Prefs: ObservableObject {
             enabled = obj
         } else {
             enabled = [:]
+        }
+        // 未寫過 key 時預設 true（維持 0.2.6 起的行為）
+        if d.object(forKey: "showCodexResetCredits") == nil {
+            showCodexResetCredits = true
+        } else {
+            showCodexResetCredits = d.bool(forKey: "showCodexResetCredits")
         }
     }
 
@@ -105,12 +115,14 @@ final class Prefs: ObservableObject {
         var menuBucketKey: String
         var disabledProviders: [String]
         var enabled: [String: [String]]
+        var showCodexResetCredits: Bool
     }
 
     func snapshotForTest() -> Snapshot {
         Snapshot(language: language, pollInterval: pollInterval,
                  menuProvider: menuProvider, menuBucketKey: menuBucketKey,
-                 disabledProviders: disabledProviders, enabled: enabled)
+                 disabledProviders: disabledProviders, enabled: enabled,
+                 showCodexResetCredits: showCodexResetCredits)
     }
 
     func restoreForTest(_ s: Snapshot) {
@@ -120,6 +132,7 @@ final class Prefs: ObservableObject {
         menuBucketKey = s.menuBucketKey
         disabledProviders = s.disabledProviders
         enabled = s.enabled
+        showCodexResetCredits = s.showCodexResetCredits
     }
 
     /// 測試用:啟用全部 provider,並覆寫各家顯示的 bucket keys。
