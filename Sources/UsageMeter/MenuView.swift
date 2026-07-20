@@ -277,7 +277,7 @@ final class PanelViewController: NSViewController {
         head.spacing = 6
         head.alignment = .centerY
         if let plan = usage.plan { head.addArrangedSubview(makeBadge(plan)) }
-        if let extra = usage.planAccessory, !extra.isEmpty {
+        if shouldShowPlanAccessory(usage), let extra = usage.planAccessory, !extra.isEmpty {
             head.addArrangedSubview(makeBadge(extra))
         }
         let spacer = NSView()
@@ -310,6 +310,14 @@ final class PanelViewController: NSViewController {
             }
         }
         return col
+    }
+
+    /// Codex 的 planAccessory 受偏好「重置數量」控制；其他家若有 accessory 一律顯示。
+    private func shouldShowPlanAccessory(_ usage: ProviderUsage) -> Bool {
+        if usage.provider == .codex {
+            return Prefs.shared.showCodexResetCredits
+        }
+        return true
     }
 
     private func makeBarRow(_ b: UsageBucket) -> NSView {

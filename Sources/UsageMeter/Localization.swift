@@ -77,5 +77,7 @@ enum Loc {
         // Codex 手動重置額度（plan 旁）：「重置 ×2 · 7/26」
         "codex.reset.badge": [.zhHant: "重置 ×%d · %@", .ja: "リセット ×%d · %@", .en: "×%d · %@"],
         "codex.reset.count": [.zhHant: "重置 ×%d",     .ja: "リセット ×%d",     .en: "×%d resets"],
+        // 偏好設定「顯示細項」下的勾選（與 5 小時 / 週 同列）
+        "codex.reset.show":  [.zhHant: "重置數量",    .ja: "リセット回数",      .en: "Reset credits"],
     ]
 }
