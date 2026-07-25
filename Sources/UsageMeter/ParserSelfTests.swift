@@ -168,33 +168,100 @@ enum ParserSelfTests {
     }
 
     private static func testGeminiModelsParsing() throws {
-        let data = Data("""
+        // 官方 retrieveUserQuotaSummary 形狀（與 Antigravity Model Quota UI 一致）
+        let summary = Data("""
+        {
+          "groups": [
+            {
+              "displayName": "Gemini Models",
+              "description": "Models within this group: Gemini Flash, Gemini Pro",
+              "buckets": [
+                {
+                  "bucketId": "gemini-weekly",
+                  "displayName": "Weekly Limit",
+                  "window": "weekly",
+                  "resetTime": "2026-07-29T02:58:22Z",
+                  "remainingFraction": 0.8560178
+                },
+                {
+                  "bucketId": "gemini-5h",
+                  "displayName": "Five Hour Limit",
+                  "window": "5h",
+                  "resetTime": "2026-07-25T11:29:45Z",
+                  "remainingFraction": 0.203997
+                }
+              ]
+            },
+            {
+              "displayName": "Claude and GPT models",
+              "description": "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS",
+              "buckets": [
+                {
+                  "bucketId": "3p-weekly",
+                  "displayName": "Weekly Limit",
+                  "window": "weekly",
+                  "resetTime": "2026-08-01T06:16:39Z",
+                  "remainingFraction": 0.76366746
+                },
+                {
+                  "bucketId": "3p-5h",
+                  "displayName": "Five Hour Limit",
+                  "window": "5h",
+                  "resetTime": "2026-07-25T11:16:39Z",
+                  "remainingFraction": 0.3064544
+                }
+              ]
+            }
+          ]
+        }
+        """.utf8)
+        let usage = try GeminiProvider.parseQuotaSummaryResponse(summary)
+        try expect(usage.provider == .gemini, "Gemini provider mismatch")
+        try expect(usage.plan == "Antigravity", "Gemini plan mismatch")
+        // 官方順序：每組先週再 5h
+        try expect(usage.buckets.map(\.key) == [
+            "gemini.week", "gemini.5h", "partner.week", "partner.5h",
+        ], "Gemini summary keys mismatch: \(usage.buckets.map(\.key))")
+        try expect(usage.buckets.map(\.label) == [
+            "gemini.bucket.gemini.week", "gemini.bucket.gemini.5h",
+            "gemini.bucket.partner.week", "gemini.bucket.partner.5h",
+        ], "Gemini summary labels mismatch")
+        try expect(Int(usage.buckets[0].usedPercent.rounded()) == 14, "Gemini week used% (1-0.856)")
+        try expect(Int(usage.buckets[1].usedPercent.rounded()) == 80, "Gemini 5h used% (1-0.204)")
+        try expect(Int(usage.buckets[2].usedPercent.rounded()) == 24, "Partner week used%")
+        try expect(Int(usage.buckets[3].usedPercent.rounded()) == 69, "Partner 5h used%")
+        try expect(usage.buckets.allSatisfy(\.defaultOn), "Gemini buckets should default on")
+
+        // 退回路徑：fetchAvailableModels 歸兩池
+        let fiveHourReset = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3 * 3600))
+        let modelsData = Data("""
         {
           "models": {
-            "gemini-a": {
-              "displayName": "Gemini A",
-              "recommended": true,
-              "quotaInfo": {"remainingFraction": 0.25, "resetTime": "2026-06-30T12:00:00Z"}
+            "gemini-3-flash": {
+              "displayName": "Gemini 3 Flash",
+              "modelProvider": "MODEL_PROVIDER_GOOGLE",
+              "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+              "quotaInfo": {"remainingFraction": 0.25, "resetTime": "\(fiveHourReset)"}
             },
-            "gemini-a-copy": {
-              "displayName": "Gemini A",
-              "recommended": false,
-              "quotaInfo": {"remainingFraction": 0.10}
+            "claude-opus-4-6-thinking": {
+              "displayName": "Claude Opus 4.6",
+              "modelProvider": "MODEL_PROVIDER_ANTHROPIC",
+              "apiProvider": "API_PROVIDER_ANTHROPIC_VERTEX",
+              "quotaInfo": {"remainingFraction": 0.40, "resetTime": "\(fiveHourReset)"}
             },
-            "gemini-b": {
-              "displayName": "Gemini B",
-              "quotaInfo": {"remainingFraction": 0.80}
+            "tab_flash_lite_preview": {
+              "displayName": "Tab",
+              "modelProvider": "MODEL_PROVIDER_GOOGLE",
+              "quotaInfo": {"remainingFraction": 1.0}
             }
           }
         }
         """.utf8)
-        let usage = try GeminiProvider.parseModelsResponse(data)
-
-        try expect(usage.provider == .gemini, "Gemini provider mismatch")
-        try expect(usage.plan == "Antigravity", "Gemini plan mismatch")
-        try expect(usage.buckets.map(\.label) == ["Gemini A", "Gemini B"], "Gemini labels mismatch")
-        try expect(Int(usage.buckets[0].usedPercent) == 75, "Gemini percent mismatch")
-        try expect(usage.buckets[0].defaultOn, "Gemini recommended flag mismatch")
+        let fallback = try GeminiProvider.parseModelsResponse(modelsData)
+        try expect(fallback.buckets.map(\.key) == ["gemini.5h", "partner.5h"],
+                   "Gemini models fallback keys: \(fallback.buckets.map(\.key))")
+        try expect(Int(fallback.buckets[0].usedPercent.rounded()) == 75, "fallback gemini %")
+        try expect(Int(fallback.buckets[1].usedPercent.rounded()) == 60, "fallback partner %")
     }
 
     private static func testGrokBillingParsing() throws {

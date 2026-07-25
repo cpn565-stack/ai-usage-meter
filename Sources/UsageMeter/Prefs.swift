@@ -92,8 +92,14 @@ final class Prefs: ObservableObject {
     }
 
     /// 該家目前實際啟用的 bucket key 集合(沒存過就用 defaultOn)。
+    /// 若存過的 key 與目前 API 桶完全不重疊（schema 變更，例如 Gemini 從 per-model 改成家族池），
+    /// 回退 defaultOn，避免細項全部消失。
     func effectiveEnabled(_ provider: String, buckets: [UsageBucket]) -> Set<String> {
-        if let saved = enabled[provider] { return Set(saved) }
+        let available = Set(buckets.map(\.key))
+        if let saved = enabled[provider] {
+            let kept = Set(saved).intersection(available)
+            if !kept.isEmpty { return kept }
+        }
         return Set(buckets.filter { $0.defaultOn }.map { $0.key })
     }
 
