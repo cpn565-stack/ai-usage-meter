@@ -27,7 +27,7 @@ Built with native AppKit (`NSStatusItem` + `NSPopover`). No Dock icon, no backgr
 
 - **Four providers** — Claude, Codex, Gemini, Grok side by side.
 - **Official numbers** — polls each vendor's real usage API (not a local token estimate).
-- **Per-bucket detail** — 5h / weekly windows, Claude scoped limits, Gemini per-model quotas, Grok weekly split (Chat / Build / Imagine / Other).
+- **Per-bucket detail** — 5h / weekly windows, Claude scoped limits, Gemini family pools (Gemini + Claude/GPT × week/5h), Grok weekly split (Chat / Build / Imagine / Other).
 - **Menu-bar percentage** — show all (max) or a specific provider/bucket.
 - **Auto token refresh** — refreshes OAuth tokens and writes them back when needed.
 - **Configurable** — poll interval, launch at login, which items to show, UI language (繁體中文 / 日本語 / English).
@@ -79,7 +79,7 @@ Without those secrets, CI still builds, but **prebuilt Gemini token refresh will
 
 - **Claude** — decrypts Electron `safeStorage` token cache (`oauth:tokenCacheV2` / legacy), calls `GET /api/oauth/usage`, refreshes via `platform.claude.com`.
 - **Codex** — reads `~/.codex/auth.json`, ChatGPT backend usage API, refreshes via `auth.openai.com`.
-- **Gemini** — Antigravity Keychain OAuth → Cloud Code `fetchAvailableModels` quotas; refresh uses the public Antigravity desktop OAuth client in `Secrets.example.swift`.
+- **Gemini** — Antigravity Keychain OAuth → Cloud Code `retrieveUserQuotaSummary` (official **Gemini Models** / **Claude and GPT models** × weekly + 5h); falls back to `fetchAvailableModels` if needed. Refresh uses the public Antigravity desktop OAuth client in `Secrets.example.swift`.
 - **Grok** — `~/.grok/auth.json` → `cli-chat-proxy.grok.com/v1/billing?format=credits` (weekly total + product split).
 
 ## Security & disclaimer

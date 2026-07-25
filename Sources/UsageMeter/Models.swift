@@ -1,6 +1,6 @@
 import Foundation
 
-/// 一個用量「桶」:可能是 5 小時窗、7 天窗、某個 Claude 子限額,或某個 Gemini 模型的額度。
+/// 一個用量「桶」:可能是 5 小時窗、7 天窗、某個 Claude 子限額,或 Gemini 家族池(Gemini / Opus·GPT)。
 struct UsageBucket: Equatable, Identifiable {
     var key: String           // 穩定識別碼(供勾選用),例:"5h"、"design"、"gemini-3-flash"
     var label: String         // 顯示字串(可為 localization key 或字面值)

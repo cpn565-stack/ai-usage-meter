@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **Preferences → Shown items → Codex「重置數量」**：可關閉方案旁的手動重置徽章（`重置 ×N · M/d`），與其他細項勾選相同
+## [0.2.8] - 2026-07-25
+
+### Changed
+- **Gemini / Antigravity**：改打官方 `retrieveUserQuotaSummary`，與 Model Quota UI 一致——**Gemini Models** / **Claude and GPT models**，各有 **Weekly** + **Five Hour**（顯示為 `Gemini · 週/5 小時`、`Claude/GPT · 週/5 小時`）。summary 失敗才退回 `fetchAvailableModels` 歸兩池。
+- 偏好設定：若已存的 bucket key 與目前 API 桶完全不重疊（schema 變更），回退 `defaultOn`，避免仍列出舊的 per-model 細項。
 
 ## [0.2.7] - 2026-07-15
 

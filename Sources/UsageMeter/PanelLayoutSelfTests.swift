@@ -139,10 +139,10 @@ enum PanelLayoutSelfTests {
             .gemini: ProviderUsage(
                 provider: .gemini,
                 buckets: buckets([
-                    ("a", "Gemini A", 10),
-                    ("b", "Gemini B", 20),
-                    ("c", "Gemini C", 30),
-                    ("d", "Gemini D", 40),
+                    ("gemini.week", "gemini.bucket.gemini.week", 20),
+                    ("gemini.5h", "gemini.bucket.gemini.5h", 10),
+                    ("partner.week", "gemini.bucket.partner.week", 40),
+                    ("partner.5h", "gemini.bucket.partner.5h", 30),
                 ]),
                 plan: "Antigravity", error: nil, updatedAt: Date()),
             .grok: ProviderUsage(
