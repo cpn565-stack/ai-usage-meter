@@ -3,6 +3,14 @@ import Combine
 
 let panelWidth: CGFloat = 300
 private let listMaxHeight: CGFloat = 460
+/// Header 上下留白：用外層 constraint 常數（不要用 NSStackView.cross-axis edgeInsets——
+/// 實測它會被取成 min(top, bottom) 兩邊通用，非對稱設定直接失效）。
+private let headerTopPad: CGFloat = 16
+private let headerBottomPad: CGFloat = 10
+
+/// 用量列左側標籤欄寬。0.2.8 起 Gemini 標籤變長
+///（`Claude/GPT · 5 小時` 11pt 約 106pt），74 會截成 `...`，故放到 110。
+let barLabelWidth: CGFloat = 110
 
 /// 點選單列 icon 後彈出的面板(取代 SwiftUI MenuView)。
 /// 布局以 v0.2 為準;只多做「取消細項時高度能縮」與 self-test probe。
@@ -58,7 +66,7 @@ final class PanelViewController: NSViewController {
 
         let titleCol = NSStackView(views: [titleLabel, statusLabel])
         titleCol.orientation = .vertical
-        titleCol.spacing = 1
+        titleCol.spacing = 2
         titleCol.alignment = .leading
         titleCol.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
@@ -67,7 +75,7 @@ final class PanelViewController: NSViewController {
         headerStack.orientation = .horizontal
         headerStack.spacing = 6
         headerStack.alignment = .centerY
-        headerStack.edgeInsets = NSEdgeInsets(top: 10, left: 12, bottom: 8, right: 12)
+        headerStack.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
         headerStack.translatesAutoresizingMaskIntoConstraints = false
         for v in [titleCol as NSView, headerSpacer, timeLabel, refreshButton, spinner] {
             headerStack.addArrangedSubview(v)
@@ -76,7 +84,7 @@ final class PanelViewController: NSViewController {
         // ── 用量清單(可捲動)──
         providerStack.orientation = .vertical
         providerStack.alignment = .leading
-        providerStack.spacing = 9
+        providerStack.spacing = 10
         providerStack.translatesAutoresizingMaskIntoConstraints = false
 
         let doc = NSView()
@@ -104,8 +112,8 @@ final class PanelViewController: NSViewController {
 
         footerStack.orientation = .vertical
         footerStack.alignment = .leading
-        footerStack.spacing = 1
-        footerStack.edgeInsets = NSEdgeInsets(top: 0, left: 6, bottom: 6, right: 6)
+        footerStack.spacing = 2
+        footerStack.edgeInsets = NSEdgeInsets(top: 0, left: 6, bottom: 8, right: 6)
         footerStack.translatesAutoresizingMaskIntoConstraints = false
 
         root.addSubview(headerStack)
@@ -113,11 +121,11 @@ final class PanelViewController: NSViewController {
         root.addSubview(sep)
         root.addSubview(footerStack)
         NSLayoutConstraint.activate([
-            headerStack.topAnchor.constraint(equalTo: root.topAnchor),
+            headerStack.topAnchor.constraint(equalTo: root.topAnchor, constant: headerTopPad),
             headerStack.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             headerStack.trailingAnchor.constraint(equalTo: root.trailingAnchor),
 
-            scrollView.topAnchor.constraint(equalTo: headerStack.bottomAnchor),
+            scrollView.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: headerBottomPad),
             scrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
 
@@ -259,7 +267,9 @@ final class PanelViewController: NSViewController {
         scrollHeight.constant = min(max(stackH, 1), listMaxHeight)
         view.layoutSubtreeIfNeeded()
 
-        let headerH = max(headerStack.fittingSize.height, 36)
+        // fitting 只量內容高（header 內層 insets 已歸零避開 NSStackView min() 怪癖），
+        // 上下留白由 headerTopPad / headerBottomPad 外層 constraint 提供，這裡要加回去。
+        let headerH = max(headerStack.fittingSize.height, 30) + headerTopPad + headerBottomPad
         let footerH = max(footerStack.fittingSize.height, 54)
         let chrome: CGFloat = 8 + 1 + 8   // gaps around separator
         let totalH = ceil(headerH + scrollHeight.constant + chrome + footerH)
@@ -287,7 +297,7 @@ final class PanelViewController: NSViewController {
         let col = NSStackView(views: [head])
         col.orientation = .vertical
         col.alignment = .leading
-        col.spacing = 5
+        col.spacing = 6
         head.widthAnchor.constraint(equalTo: col.widthAnchor).isActive = true
         if let e = usage.error {
             let err = makeLabel(e, size: 10, color: .systemOrange)
@@ -321,8 +331,10 @@ final class PanelViewController: NSViewController {
     }
 
     private func makeBarRow(_ b: UsageBucket) -> NSView {
-        let name = makeLabel(Loc.tr(b.label, lang), size: 11)
-        name.widthAnchor.constraint(equalToConstant: 74).isActive = true
+        let labelText = Loc.tr(b.label, lang)
+        let name = makeLabel(labelText, size: 11)
+        name.toolTip = labelText
+        name.widthAnchor.constraint(equalToConstant: barLabelWidth).isActive = true
         name.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         let bar = BarView()
@@ -416,15 +428,15 @@ final class BarView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         track.backgroundColor = NSColor.gray.withAlphaComponent(0.22).cgColor
-        track.cornerRadius = 3
-        fill.cornerRadius = 3
+        track.cornerRadius = 4
+        fill.cornerRadius = 4
         fill.backgroundColor = NSColor.systemGreen.cgColor
         layer?.addSublayer(track)
         layer?.addSublayer(fill)
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: 7) }
+    override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: 8) }
     override var wantsUpdateLayer: Bool { true }
 
     override func layout() {

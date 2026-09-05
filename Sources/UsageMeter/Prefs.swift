@@ -52,6 +52,16 @@ final class Prefs: ObservableObject {
             }
         }
     }
+    /// 各家曾經看過的 bucket key。用來分辨「API 新增的桶」vs「使用者親手關掉的桶」：
+    /// 沒看過的新桶走 defaultOn（自動顯示），看過但不在 enabled 的維持關閉。
+    /// 0.2.8 前沒有這個欄位，升級上來是空的 → 目前桶一律視為新桶顯示一次。
+    @Published private var seenBuckets: [String: [String]] {
+        didSet {
+            if let data = try? JSONSerialization.data(withJSONObject: seenBuckets) {
+                d.set(data, forKey: "seenBucketKeys")
+            }
+        }
+    }
     /// Codex 方案旁的「重置 ×N · M/d」徽章；預設顯示。
     @Published var showCodexResetCredits: Bool {
         didSet { d.set(showCodexResetCredits, forKey: "showCodexResetCredits") }
@@ -68,6 +78,12 @@ final class Prefs: ObservableObject {
             enabled = obj
         } else {
             enabled = [:]
+        }
+        if let data = d.data(forKey: "seenBucketKeys"),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String]] {
+            seenBuckets = obj
+        } else {
+            seenBuckets = [:]
         }
         // 未寫過 key 時預設 true（維持 0.2.6 起的行為）
         if d.object(forKey: "showCodexResetCredits") == nil {
@@ -94,13 +110,32 @@ final class Prefs: ObservableObject {
     /// 該家目前實際啟用的 bucket key 集合(沒存過就用 defaultOn)。
     /// 若存過的 key 與目前 API 桶完全不重疊（schema 變更，例如 Gemini 從 per-model 改成家族池），
     /// 回退 defaultOn，避免細項全部消失。
+    /// 部分重疊時沿用舊選擇，但「沒看過的新桶」走 defaultOn（例如 0.2.8 新增的 Gemini 週額度），
+    /// 避免 fallback 時代存下的舊子集把新桶永久隱藏；使用者親手關掉的（看過但不在存檔）維持關閉。
     func effectiveEnabled(_ provider: String, buckets: [UsageBucket]) -> Set<String> {
         let available = Set(buckets.map(\.key))
-        if let saved = enabled[provider] {
-            let kept = Set(saved).intersection(available)
-            if !kept.isEmpty { return kept }
+        var seen = Set(seenBuckets[provider] ?? [])
+        let fresh = available.subtracting(seen)
+        if !fresh.isEmpty {
+            seen.formUnion(available)
+            seenBuckets[provider] = Array(seen)
         }
-        return Set(buckets.filter { $0.defaultOn }.map { $0.key })
+        let defaults = Set(buckets.filter { $0.defaultOn }.map { $0.key })
+        guard let saved = enabled[provider] else { return defaults }
+        let kept = Set(saved).intersection(available)
+        if kept.isEmpty {
+            // 存過的 key 與目前完全不重疊（schema 變更）→ 回 defaultOn 並清掉舊存檔
+            enabled[provider] = Array(defaults)
+            return defaults
+        }
+        let newcomers = fresh.intersection(defaults)
+        if !newcomers.isEmpty {
+            // 沒看過的新桶自動顯示一次，並寫回存檔；之後的開關都基於這份完整選擇
+            let migrated = kept.union(newcomers)
+            enabled[provider] = Array(migrated)
+            return migrated
+        }
+        return kept
     }
 
     func isOn(_ provider: String, _ key: String, buckets: [UsageBucket]) -> Bool {
@@ -108,7 +143,8 @@ final class Prefs: ObservableObject {
     }
 
     func toggle(_ provider: String, _ key: String, on: Bool, buckets: [UsageBucket]) {
-        var set = effectiveEnabled(provider, buckets: buckets)
+        // 與之前存的聯集：fallback（桶不全）時開關一次，不丟掉當下沒看到的桶的選擇。
+        var set = Set(enabled[provider] ?? []).union(effectiveEnabled(provider, buckets: buckets))
         if on { set.insert(key) } else { set.remove(key) }
         enabled[provider] = Array(set)
     }
@@ -121,6 +157,7 @@ final class Prefs: ObservableObject {
         var menuBucketKey: String
         var disabledProviders: [String]
         var enabled: [String: [String]]
+        var seenBuckets: [String: [String]]
         var showCodexResetCredits: Bool
     }
 
@@ -128,6 +165,7 @@ final class Prefs: ObservableObject {
         Snapshot(language: language, pollInterval: pollInterval,
                  menuProvider: menuProvider, menuBucketKey: menuBucketKey,
                  disabledProviders: disabledProviders, enabled: enabled,
+                 seenBuckets: seenBuckets,
                  showCodexResetCredits: showCodexResetCredits)
     }
 
@@ -138,17 +176,23 @@ final class Prefs: ObservableObject {
         menuBucketKey = s.menuBucketKey
         disabledProviders = s.disabledProviders
         enabled = s.enabled
+        seenBuckets = s.seenBuckets
         showCodexResetCredits = s.showCodexResetCredits
     }
 
     /// 測試用:啟用全部 provider,並覆寫各家顯示的 bucket keys。
-    func applyTestDisplay(enabledProviders: [ProviderID], buckets: [ProviderID: [String]]) {
+    /// seen 預設等於顯示的 keys（「只看過這些」）；要模擬「看過全部再關掉幾個」時請傳完整集合。
+    func applyTestDisplay(enabledProviders: [ProviderID], buckets: [ProviderID: [String]],
+                          seen: [ProviderID: [String]]? = nil) {
         disabledProviders = ProviderID.allCases
             .filter { !enabledProviders.contains($0) }
             .map(\.rawValue)
         var next: [String: [String]] = [:]
         for (p, keys) in buckets { next[p.rawValue] = keys }
         enabled = next
+        var nextSeen: [String: [String]] = [:]
+        for (p, keys) in (seen ?? buckets) { nextSeen[p.rawValue] = keys }
+        seenBuckets = nextSeen
     }
 }
 

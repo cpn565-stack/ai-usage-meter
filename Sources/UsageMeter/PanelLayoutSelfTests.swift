@@ -40,7 +40,8 @@ enum PanelLayoutSelfTests {
         for (p, usage) in fixture {
             leanBuckets[p] = usage.buckets.first.map { [$0.key] } ?? []
         }
-        Prefs.shared.applyTestDisplay(enabledProviders: ProviderID.allCases, buckets: leanBuckets)
+        Prefs.shared.applyTestDisplay(enabledProviders: ProviderID.allCases, buckets: leanBuckets,
+                                      seen: fixture.mapValues { $0.buckets.map(\.key) })
         let lean = panel.probeLayoutForTest()
         try assertBasicLayout(lean, label: "lean")
 
@@ -62,13 +63,71 @@ enum PanelLayoutSelfTests {
         let resetSample = formatReset(Date().addingTimeInterval(6 * 86400 + 7 * 3600), lang: .zhHant)
         try expect(resetSample.count >= 4, "formatReset 應產出可顯示字串,得 \(resetSample)")
 
+        // 0.2.8 回歸:Gemini 標籤(`Claude/GPT · 5 小時`約 106pt)曾被 74pt 欄寬截成 `...`
+        try assertBarLabelsFit(fixture)
+
+        // 回報案回歸:API 正常回 4 桶，但 enabledBuckets 存著 fallback 時代的舊子集，
+        // 週額度被過濾掉。舊子集 + 新桶 → 新桶要自動顯示；親手關的 → 維持關閉。
+        try testStaleSubsetReshowsNewBuckets()
+
         return [
             "✓ Panel layout full \(Int(full.contentSize.width))×\(Int(full.contentSize.height))",
             "✓ Panel layout lean \(Int(lean.contentSize.width))×\(Int(lean.contentSize.height)) (Δ\(Int(shrink))pt)",
             "✓ Panel shrinks when buckets hidden",
             "✓ Header + refresh button inside bounds",
             "✓ Content width not clipped past panel",
+            "✓ Bar labels fit label column",
+            "✓ Stale bucket subset still shows new buckets",
         ]
+    }
+
+    /// 所有語系下已知的 bucket 標籤都必須塞進 barLabelWidth，否則會被截成 `...`。
+    @MainActor
+    private static func assertBarLabelsFit(_ fixture: [ProviderID: ProviderUsage]) throws {
+        let font = NSFont.systemFont(ofSize: 11)
+        var keys = Set<String>()
+        for usage in fixture.values { for b in usage.buckets { keys.insert(b.label) } }
+        keys.formUnion(["win.5h", "win.week",
+                        "gemini.bucket.gemini.5h", "gemini.bucket.gemini.week",
+                        "gemini.bucket.partner.5h", "gemini.bucket.partner.week",
+                        "grok.chat", "grok.build", "grok.imagine", "grok.other"])
+        for lang in [AppLanguage.zhHant, AppLanguage.ja, AppLanguage.en] {
+            for key in keys {
+                let s = Loc.tr(key, lang)
+                let w = (s as NSString).size(withAttributes: [.font: font]).width
+                try expect(w <= barLabelWidth,
+                           "標籤欄太窄:[\(lang.rawValue)]「\(s)」需 \(Int(ceil(w)))pt,欄寬僅 \(Int(barLabelWidth))")
+            }
+        }
+    }
+
+    /// 舊顯示子集 + API 新增桶 → 新桶自動顯示；親手關掉的維持關閉；
+    /// fallback（桶不全）時開關不丟掉沒看到的桶的選擇。
+    @MainActor
+    private static func testStaleSubsetReshowsNewBuckets() throws {
+        let reset = Date().addingTimeInterval(3600)
+        func bucket(_ key: String) -> UsageBucket {
+            UsageBucket(key: key, label: key, usedPercent: 10, resetsAt: reset, defaultOn: true)
+        }
+        let four = [bucket("gemini.week"), bucket("gemini.5h"),
+                    bucket("partner.week"), bucket("partner.5h")]
+        let fullKeys = Set(four.map(\.key))
+        // 模擬回報案：存檔是 fallback 時代的舊子集，週額度從沒看過
+        Prefs.shared.applyTestDisplay(enabledProviders: [.gemini],
+                                      buckets: [.gemini: ["gemini.5h", "partner.5h"]])
+        var eff = Prefs.shared.effectiveEnabled("gemini", buckets: four)
+        try expect(eff == fullKeys, "舊子集 + 新桶應自動顯示新桶，得 \(eff.sorted())")
+        // 親手關掉 partner.week → 下次刷新仍維持關閉
+        Prefs.shared.toggle("gemini", "partner.week", on: false, buckets: four)
+        eff = Prefs.shared.effectiveEnabled("gemini", buckets: four)
+        try expect(eff == fullKeys.subtracting(["partner.week"]),
+                   "親手關掉的桶應維持關閉，得 \(eff.sorted())")
+        // fallback（桶不全）時開 "gemini.5h"，不應丟掉沒看到的 gemini.week
+        Prefs.shared.toggle("gemini", "gemini.5h", on: true,
+                            buckets: [bucket("gemini.5h"), bucket("partner.5h")])
+        eff = Prefs.shared.effectiveEnabled("gemini", buckets: four)
+        try expect(eff == fullKeys.subtracting(["partner.week"]),
+                   "fallback 時開關不應丟失週額度，得 \(eff.sorted())")
     }
 
     @MainActor

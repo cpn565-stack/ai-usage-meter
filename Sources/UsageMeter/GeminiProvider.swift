@@ -9,7 +9,9 @@ enum GeminiProvider {
     // 實際值放在不進版控的 Secrets.swift(見 Secrets.example.swift)。
     static let clientID = Secrets.geminiClientID
     static let clientSecret = Secrets.geminiClientSecret
-    static let base = "https://cloudcode-pa.googleapis.com"
+    // Antigravity 官方 UI 與 agy CLI 走 daily channel；stable host 的 Gemini 池會與官方不符
+    //（3p 池兩邊一致，只有 Gemini 池不同），故跟官方用同一個 host。
+    static let base = "https://daily-cloudcode-pa.googleapis.com"
     static let userAgent = "antigravity/windows/amd64"
     static let keychainService = "gemini"
     static let keychainAccount = "antigravity"

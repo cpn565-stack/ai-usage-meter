@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **面板拋光**：header 上緣改為明確 16pt（之前貼邊太擠；注意 NSStackView 橫向排列時上下 edgeInsets 會被取成 `min(top, bottom)` 兩邊通用，所以上下留白改用外層 constraint 常數）、標題/狀態列間距、provider 段落與列間距放寬、進度條 7→8pt 藥丸形、底部動作列留白增加。
+
+### Fixed
+- **Gemini 數字與官方不符**：改打 `daily-cloudcode-pa.googleapis.com`（官方 UI 與 `agy` CLI 用的 channel）。舊的 stable host 回的 Gemini 池與官方不一致（週 62% vs 86%、5h 100% vs 78%，reset 也不同窗），3p 池兩邊則一致。用 proxy 追 `agy` 的連線目標確認。
+- **Gemini 週額度消失**：API 其實正常回傳 4 個桶，是 `enabledBuckets` 存著 fallback 時代的舊子集（只有兩個 5h），0.2.8 新增週額度後因部分重疊仍沿用舊子集，週額度被過濾掉。Prefs 現在記住各家「看過的桶」，沒看過的新桶走 `defaultOn` 自動顯示，親手關掉的維持關閉；fallback（桶不全）時開關也不再丟掉沒看到的桶的選擇。升級後下次刷新自動恢復顯示，無需手動重勾。
+- **Gemini 標籤被截斷**：用量列標籤欄從 74pt 放寬到 110pt（`Claude/GPT · 5 小時` 需約 106pt），並加上 tooltip。
+
 ## [0.2.8] - 2026-07-25
 
 ### Changed
