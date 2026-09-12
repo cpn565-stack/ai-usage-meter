@@ -69,6 +69,7 @@ enum PanelLayoutSelfTests {
         // 回報案回歸:API 正常回 4 桶，但 enabledBuckets 存著 fallback 時代的舊子集，
         // 週額度被過濾掉。舊子集 + 新桶 → 新桶要自動顯示；親手關的 → 維持關閉。
         try testStaleSubsetReshowsNewBuckets()
+        try testTwoCodexRowsLayout()
 
         return [
             "✓ Panel layout full \(Int(full.contentSize.width))×\(Int(full.contentSize.height))",
@@ -78,6 +79,7 @@ enum PanelLayoutSelfTests {
             "✓ Content width not clipped past panel",
             "✓ Bar labels fit label column",
             "✓ Stale bucket subset still shows new buckets",
+            "✓ Two Codex account rows layout",
         ]
     }
 
@@ -128,6 +130,36 @@ enum PanelLayoutSelfTests {
         eff = Prefs.shared.effectiveEnabled("gemini", buckets: four)
         try expect(eff == fullKeys.subtracting(["partner.week"]),
                    "fallback 時開關不應丟失週額度，得 \(eff.sorted())")
+    }
+
+    /// 兩個獨立 Codex 帳號應並排成兩列，且不裁切。
+    @MainActor
+    private static func testTwoCodexRowsLayout() throws {
+        let reset = Date().addingTimeInterval(3600)
+        func buckets() -> [UsageBucket] {
+            [
+                UsageBucket(key: "5h", label: "win.5h", usedPercent: 10, resetsAt: reset, defaultOn: true),
+                UsageBucket(key: "week", label: "win.week", usedPercent: 20, resetsAt: reset, defaultOn: true),
+            ]
+        }
+        let plus = ProviderUsage(provider: .codex, accountKey: "acct-plus", accountLabel: "default",
+                                 buckets: buckets(), plan: "Plus", error: nil, updatedAt: Date())
+        let work = ProviderUsage(provider: .codex, accountKey: "acct-work", accountLabel: "work",
+                                 buckets: buckets(), plan: "Business", error: nil, updatedAt: Date())
+        let claude = ProviderUsage(provider: .claude, buckets: buckets(), plan: "Pro", error: nil, updatedAt: Date())
+        let store = UsageStore(skipInitialRefresh: true)
+        store.replaceResultsForTest([plus, work, claude])
+        Prefs.shared.applyTestDisplay(enabledProviders: [.codex, .claude],
+                                      buckets: [.codex: ["5h", "week"], .claude: ["5h", "week"]])
+        Prefs.shared.language = .zhHant
+        let panel = PanelViewController(store: store, openSettings: {})
+        let probe = panel.probeLayoutForTest()
+        try assertBasicLayout(probe, label: "two-codex")
+        try expect(store.visibleCodexCount == 2, "visible Codex count should be 2")
+        try expect(plus.rowTitle(multiCodex: true, lang: .zhHant) == "Codex · 預設",
+                   "default account title")
+        try expect(work.rowTitle(multiCodex: true, lang: .zhHant) == "Codex · work",
+                   "work account title")
     }
 
     @MainActor

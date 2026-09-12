@@ -10,6 +10,7 @@ enum ParserSelfTests {
         try testClaudeUsageParsing()
         try testClaudeLimitsListParsing()
         try testCodexUsageParsing()
+        try testCodexAccountDiscovery()
         try testGeminiModelsParsing()
         try testGrokBillingParsing()
         try testUnexpectedShapeIsApiChanged()
@@ -17,6 +18,7 @@ enum ParserSelfTests {
             "✓ Claude parser fixture",
             "✓ Claude limits list fixture",
             "✓ Codex parser fixture",
+            "✓ Codex multi-account discovery",
             "✓ Gemini parser fixture",
             "✓ Grok billing fixture",
             "✓ Unexpected shape reports API change",
@@ -165,6 +167,88 @@ enum ParserSelfTests {
         let idDay = CodexProvider.windowIdentity(seconds: 86_400, role: "primary")
         try expect(idDay.key == "day" && idDay.label == "win.day", "day window identity")
         try expect(CodexProvider.displayPlan("team") == "Business", "team→Business")
+    }
+
+    private static func testCodexAccountDiscovery() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("um-codex-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let plusId = "acct-plus"
+        let workId = "acct-work"
+        try writeFakeCodexAuth(home: root.appendingPathComponent(".codex"),
+                               accountId: plusId, lastRefresh: "2026-09-01T00:00:00Z", email: "plus@example.com", plan: "plus")
+        try writeFakeCodexAuth(home: root.appendingPathComponent(".codex-work"),
+                               accountId: workId, lastRefresh: "2026-09-09T00:00:00Z", email: "work@example.com", plan: "team")
+        try writeFakeCodexAuth(home: root.appendingPathComponent(".codex-personal"),
+                               accountId: plusId, lastRefresh: "2026-09-10T00:00:00Z", email: "plus@example.com", plan: "plus")
+        // nested copy inside default home must be ignored
+        try writeFakeCodexAuth(home: root.appendingPathComponent(".codex").appendingPathComponent("nested"),
+                               accountId: "acct-nested", lastRefresh: "2026-09-11T00:00:00Z")
+        // API key only — skip
+        let apiHome = root.appendingPathComponent(".codex-apikey")
+        try fm.createDirectory(at: apiHome, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["OPENAI_API_KEY": "sk-test"])
+            .write(to: apiHome.appendingPathComponent("auth.json"))
+        try fm.createDirectory(at: root.appendingPathComponent(".codex-empty"), withIntermediateDirectories: true)
+
+        let discovery = CodexProvider.discover(homeDirectory: root.path, fileManager: fm)
+        try expect(discovery.accounts.map(\.accountId).sorted() == [plusId, workId].sorted(),
+                   "should keep two unique accounts, got \(discovery.accounts.map(\.accountId))")
+        let plus = discovery.accounts.first { $0.accountId == plusId }
+        let work = discovery.accounts.first { $0.accountId == workId }
+        try expect(plus?.isDefault == true, "Plus canonical should be ~/.codex even if personal is newer")
+        try expect(plus?.homeLabel == "default", "default home label")
+        try expect(plus?.homePath == root.appendingPathComponent(".codex").path, "canonical Plus path")
+        try expect(work?.homeLabel == "work", "work home label")
+        try expect(work?.email == "work@example.com", "work email from id_token")
+        try expect(CodexProvider.displayPlan(work?.planHint) == "Business", "work plan hint")
+        try expect(discovery.skipped.contains(where: { $0.homeLabel == "personal" && $0.duplicateOfLabel == "default" }),
+                   "personal should be skipped as duplicate of default")
+        try expect(!discovery.accounts.contains(where: { $0.accountId == "acct-nested" }),
+                   "nested auth.json inside ~/.codex must not be discovered")
+        try expect(!discovery.accounts.contains(where: { $0.homeLabel == "apikey" || $0.homeLabel == "empty" }),
+                   "API-key and empty homes should be skipped")
+        try expect(discovery.accounts.first?.isDefault == true, "default account sorts first")
+    }
+
+    private static func writeFakeCodexAuth(home: URL, accountId: String, lastRefresh: String?,
+                                           email: String? = nil, plan: String? = nil) throws {
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        var tokens: [String: Any] = [
+            "access_token": "at-\(accountId)",
+            "refresh_token": "rt-\(accountId)",
+            "account_id": accountId,
+        ]
+        if let email {
+            tokens["id_token"] = fakeJWT(email: email, accountId: accountId, plan: plan ?? "plus")
+        }
+        var root: [String: Any] = ["auth_mode": "chatgpt", "tokens": tokens]
+        if let lastRefresh { root["last_refresh"] = lastRefresh }
+        try JSONSerialization.data(withJSONObject: root).write(to: home.appendingPathComponent("auth.json"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                              ofItemAtPath: home.appendingPathComponent("auth.json").path)
+    }
+
+    private static func fakeJWT(email: String, accountId: String, plan: String) -> String {
+        func b64(_ obj: Any) -> String {
+            let data = try! JSONSerialization.data(withJSONObject: obj)
+            return data.base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+        }
+        let header = ["alg": "none", "typ": "JWT"]
+        let payload: [String: Any] = [
+            "email": email,
+            "exp": Date().addingTimeInterval(86_400).timeIntervalSince1970,
+            "https://api.openai.com/auth": [
+                "chatgpt_account_id": accountId,
+                "chatgpt_plan_type": plan,
+            ],
+        ]
+        return "\(b64(header)).\(b64(payload)).x"
     }
 
     private static func testGeminiModelsParsing() throws {

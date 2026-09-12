@@ -65,6 +65,8 @@ enum Loc {
         "interval.manual":[.zhHant:"手動",    .ja: "手動",           .en: "Manual"],
         "set.menubar": [.zhHant: "選單列顯示",.ja: "メニューバー表示",.en: "Menu bar shows"],
         "menu.all":    [.zhHant: "全部(最高)",.ja: "すべて(最大)",   .en: "All (max)"],
+        "menu.codex.max":[.zhHant: "Codex(最高)", .ja: "Codex(最大)", .en: "Codex (max)"],
+        "codex.home.default":[.zhHant: "預設", .ja: "デフォルト", .en: "default"],
         "menu.window": [.zhHant: "窗口",      .ja: "期間",           .en: "Window"],
         "bucket.max":  [.zhHant: "最高",      .ja: "最大",           .en: "Max"],
         "set.display": [.zhHant: "顯示細項",  .ja: "表示する項目",    .en: "Shown items"],

@@ -2,46 +2,67 @@ import Foundation
 
 enum Diagnostics {
     static func runReadOnly() -> [String] {
-        ProviderID.allCases.map { diagnose($0) }
+        ProviderID.allCases.flatMap { diagnose($0) }
     }
 
-    private static func diagnose(_ provider: ProviderID) -> String {
+    private static func diagnose(_ provider: ProviderID) -> [String] {
         do {
             switch provider {
             case .claude:
                 let store = try ClaudeProvider.loadStore()
                 let expMs = store.entry["expiresAt"] as? Double
                 let plan = ClaudeProvider.parsePlan(tokenCache: store.tokenCache) ?? "unknown plan"
-                return ok(provider, "\(plan), access token \(expiryText(expMs.map { Date(timeIntervalSince1970: $0 / 1000) }))")
+                return [ok(provider.displayName, "\(plan), access token \(expiryText(expMs.map { Date(timeIntervalSince1970: $0 / 1000) }))")]
 
             case .codex:
-                let auth = try CodexProvider.loadAuth()
-                let token = auth.tokens["access_token"] as? String ?? ""
-                let account = (auth.tokens["account_id"] as? String).map { $0.isEmpty ? "no account id" : "account id present" } ?? "no account id"
-                return ok(provider, "\(account), access token \(expiryText(CodexProvider.jwtExpiry(token)))")
+                return diagnoseCodex()
 
             case .gemini:
                 let creds = try GeminiProvider.loadCredsFromKeychain()
                 let hasRefresh = creds.refreshToken?.isEmpty == false ? "refresh token present" : "no refresh token"
-                return ok(provider, "\(hasRefresh), access token \(expiryText(creds.expiry))")
+                return [ok(provider.displayName, "\(hasRefresh), access token \(expiryText(creds.expiry))")]
 
             case .grok:
                 let store = try GrokProvider.loadStore()
                 let hasRefresh = store.refreshToken?.isEmpty == false ? "refresh token present" : "no refresh token"
                 let email = store.email.map { "\($0), " } ?? ""
-                return ok(provider, "\(email)\(hasRefresh), access token \(expiryText(store.expiresAt))")
+                return [ok(provider.displayName, "\(email)\(hasRefresh), access token \(expiryText(store.expiresAt))")]
             }
         } catch {
-            return fail(provider, error.localizedDescription)
+            return [fail(provider.displayName, error.localizedDescription)]
         }
     }
 
-    private static func ok(_ provider: ProviderID, _ detail: String) -> String {
-        "✓ \(provider.displayName): \(detail)"
+    private static func diagnoseCodex() -> [String] {
+        let discovery = CodexProvider.discover()
+        if discovery.accounts.isEmpty {
+            return [fail("Codex", ProviderError.noCredentials("~/.codex/auth.json").errorDescription ?? "no credentials")]
+        }
+        var lines: [String] = []
+        for account in discovery.accounts {
+            do {
+                let auth = try CodexProvider.loadAuth(path: account.authPath)
+                let token = auth.tokens["access_token"] as? String ?? ""
+                let label = account.homeLabel == "default" ? "Codex · default" : "Codex · \(account.homeLabel)"
+                let email = account.email.map { "\($0), " } ?? ""
+                let accountBit = account.accountId.isEmpty ? "no account id" : "account id present"
+                lines.append(ok(label, "\(email)\(accountBit), access token \(expiryText(CodexProvider.jwtExpiry(token)))"))
+            } catch {
+                lines.append(fail("Codex · \(account.homeLabel)", error.localizedDescription))
+            }
+        }
+        for skipped in discovery.skipped {
+            lines.append("· Codex: skipped duplicate home \(skipped.homeLabel) (same account as \(skipped.duplicateOfLabel))")
+        }
+        return lines
     }
 
-    private static func fail(_ provider: ProviderID, _ detail: String) -> String {
-        "✗ \(provider.displayName): \(detail)"
+    private static func ok(_ name: String, _ detail: String) -> String {
+        "✓ \(name): \(detail)"
+    }
+
+    private static func fail(_ name: String, _ detail: String) -> String {
+        "✗ \(name): \(detail)"
     }
 
     private static func expiryText(_ date: Date?) -> String {

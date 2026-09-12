@@ -217,12 +217,16 @@ final class PanelViewController: NSViewController {
         // 重建各家用量列
         for v in providerStack.arrangedSubviews { providerStack.removeArrangedSubview(v); v.removeFromSuperview() }
         var rowCount = 0
-        for p in ProviderID.allCases where Prefs.shared.isProviderEnabled(p) {
-            let usage = store.results[p] ?? .empty(p)
-            let shown = usage.buckets.filter { Prefs.shared.isOn(p.rawValue, $0.key, buckets: usage.buckets) }
+        let multiCodex = store.visibleCodexCount > 1
+        for usage in store.orderedUsages() where Prefs.shared.isProviderEnabled(usage.provider) {
+            if usage.provider == .codex, !usage.accountKey.isEmpty,
+               !Prefs.shared.isCodexAccountEnabled(usage.accountKey) {
+                continue
+            }
+            let shown = usage.buckets.filter { Prefs.shared.isOn(usage.slotID, $0.key, buckets: usage.buckets) }
             // 全取消勾選且無錯誤就整家隱藏
             if shown.isEmpty && usage.error == nil && !usage.buckets.isEmpty { continue }
-            let row = makeProviderRow(usage, shown: shown)
+            let row = makeProviderRow(usage, shown: shown, multiCodex: multiCodex)
             providerStack.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: providerStack.widthAnchor).isActive = true
             rowCount += 1
@@ -280,8 +284,9 @@ final class PanelViewController: NSViewController {
 
     // MARK: - Row builders
 
-    private func makeProviderRow(_ usage: ProviderUsage, shown: [UsageBucket]) -> NSView {
-        let name = makeLabel(usage.provider.displayName, size: 13, weight: .semibold)
+    private func makeProviderRow(_ usage: ProviderUsage, shown: [UsageBucket], multiCodex: Bool) -> NSView {
+        let name = makeLabel(usage.rowTitle(multiCodex: multiCodex, lang: lang), size: 13, weight: .semibold)
+        if let email = usage.accountEmail, !email.isEmpty { name.toolTip = email }
         let head = NSStackView(views: [name])
         head.orientation = .horizontal
         head.spacing = 6

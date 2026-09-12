@@ -23,9 +23,40 @@ enum ProviderID: String, CaseIterable, Identifiable {
     }
 }
 
+/// 本機一個獨立的 Codex ChatGPT 帳號（已依 account_id 去重）。
+struct CodexAccount: Equatable {
+    var accountId: String
+    var email: String?
+    var planHint: String?
+    var homePath: String
+    var homeLabel: String
+    var isDefault: Bool
+    var lastRefresh: Date
+
+    var authPath: String {
+        (homePath as NSString).appendingPathComponent("auth.json")
+    }
+}
+
+struct CodexSkippedHome: Equatable {
+    var homePath: String
+    var homeLabel: String
+    var duplicateOfLabel: String
+}
+
+struct CodexDiscovery: Equatable {
+    var accounts: [CodexAccount]
+    var skipped: [CodexSkippedHome]
+}
+
 /// 單一 provider 的最新用量結果(成功或失敗)。
 struct ProviderUsage: Equatable {
     var provider: ProviderID
+    /// Codex 多帳號：ChatGPT account id。其他家為空。
+    var accountKey: String = ""
+    /// CODEX_HOME 短名：`default` / `work` / `personal`。
+    var accountLabel: String? = nil
+    var accountEmail: String? = nil
     var buckets: [UsageBucket]
     var plan: String?
     /// 方案旁的補充資訊（例如 Codex 手動重置「×2 · 7/26」）。
@@ -37,8 +68,27 @@ struct ProviderUsage: Equatable {
         ProviderUsage(provider: p, buckets: [], plan: nil, planAccessory: nil, error: nil, updatedAt: nil)
     }
 
+    /// 偏好設定 / 結果表的穩定鍵。單帳號 Codex 仍是 `codex`。
+    var slotID: String {
+        if provider == .codex, !accountKey.isEmpty { return "codex:\(accountKey)" }
+        return provider.rawValue
+    }
+
     /// 給 menu bar 用的「最緊繃」百分比。
     var worstPercent: Double? { buckets.map { $0.usedPercent }.max() }
+
+    func rowTitle(multiCodex: Bool, lang: AppLanguage) -> String {
+        guard provider == .codex, multiCodex else { return provider.displayName }
+        let label = localizedAccountLabel(lang)
+        if label.isEmpty { return provider.displayName }
+        return "\(provider.displayName) · \(label)"
+    }
+
+    func localizedAccountLabel(_ lang: AppLanguage) -> String {
+        guard let accountLabel, !accountLabel.isEmpty else { return "" }
+        if accountLabel == "default" { return Loc.tr("codex.home.default", lang) }
+        return accountLabel
+    }
 }
 
 enum ProviderError: LocalizedError {

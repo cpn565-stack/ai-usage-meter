@@ -1,10 +1,12 @@
 import Foundation
 
-/// Codex(ChatGPT 訂閱):讀 ~/.codex/auth.json,呼叫 backend-api/codex/usage。
-/// access token 將過期時主動續期,並把新 token(含輪替後的 refresh token)寫回 auth.json。
+/// Codex(ChatGPT 訂閱):讀各 CODEX_HOME 的 auth.json,呼叫 backend-api/codex/usage。
+/// 預設掃 `~/.codex` 與 `~/.codex-*`（例如 `codex-work` 用的 home），依 account_id 去重。
+/// access token 將過期時主動續期,並把新 token 只寫回該帳號的 canonical home。
 /// 只在「真的快過期」時才續期(Codex token 約 10 天),避免與 Codex.app 互相輪替打架。
 enum CodexProvider {
-    static let authPath = NSString(string: "~/.codex/auth.json").expandingTildeInPath
+    static let defaultHomePath = NSString(string: "~/.codex").expandingTildeInPath
+    static let authPath = (defaultHomePath as NSString).appendingPathComponent("auth.json")
     static let tokenURL = "https://auth.openai.com/oauth/token"
     static let clientID = "app_EMoamEEZ73f0CkXaXp7hrann"
     static let usageURL = "https://chatgpt.com/backend-api/codex/usage"
@@ -13,30 +15,43 @@ enum CodexProvider {
 
     struct Auth { var root: [String: Any]; var tokens: [String: Any] }
 
-    static func loadAuth() throws -> Auth {
-        guard let data = FileManager.default.contents(atPath: authPath),
+    static func loadAuth(path: String = authPath) throws -> Auth {
+        guard let data = FileManager.default.contents(atPath: path),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tokens = root["tokens"] as? [String: Any],
               tokens["access_token"] is String else {
-            throw ProviderError.noCredentials("~/.codex/auth.json")
+            throw ProviderError.noCredentials(path)
         }
         return Auth(root: root, tokens: tokens)
     }
 
-    /// 解 JWT 的 exp(秒)。
-    static func jwtExpiry(_ token: String) -> Date? {
+    static func jwtPayload(_ token: String) -> [String: Any]? {
         let parts = token.split(separator: ".")
         guard parts.count >= 2 else { return nil }
         var b64 = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         while b64.count % 4 != 0 { b64 += "=" }
-        guard let d = Data(base64Encoded: b64),
-              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-              let exp = o["exp"] as? Double else { return nil }
+        guard let d = Data(base64Encoded: b64) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: d)) as? [String: Any]
+    }
+
+    /// 解 JWT 的 exp(秒)。
+    static func jwtExpiry(_ token: String) -> Date? {
+        guard let exp = jwtPayload(token)?["exp"] as? Double else { return nil }
         return Date(timeIntervalSince1970: exp)
     }
 
-    /// 用 refresh token 續期並寫回 auth.json(refresh token 會輪替,故必須寫回)。
-    static func refreshAndPersist(_ auth: Auth) async throws -> (String, Auth) {
+    static func chatgptClaims(idToken: String?) -> (accountId: String?, plan: String?, email: String?) {
+        guard let idToken, let payload = jwtPayload(idToken) else { return (nil, nil, nil) }
+        let auth = payload["https://api.openai.com/auth"] as? [String: Any]
+        return (
+            auth?["chatgpt_account_id"] as? String,
+            auth?["chatgpt_plan_type"] as? String,
+            payload["email"] as? String
+        )
+    }
+
+    /// 用 refresh token 續期並寫回指定 auth.json(refresh token 會輪替,故必須寫回 canonical 那份)。
+    static func refreshAndPersist(_ auth: Auth, path: String = authPath) async throws -> (String, Auth) {
         guard let rt = auth.tokens["refresh_token"] as? String else { throw ProviderError.tokenExpired }
         let (code, body) = try await Net.postJSON(tokenURL,
             headers: ["User-Agent": "ai-usage-meter/0.1", "Accept": "application/json"],
@@ -57,9 +72,134 @@ enum CodexProvider {
         let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         a.root["last_refresh"] = f.string(from: Date())
         let data = try JSONSerialization.data(withJSONObject: a.root, options: [])
-        try FileBackups.backupBeforeWrite(path: authPath, tag: "codex")
-        try data.write(to: URL(fileURLWithPath: authPath), options: .atomic)
+        try FileBackups.backupBeforeWrite(path: path, tag: "codex")
+        try data.write(to: URL(fileURLWithPath: path), options: .atomic)
         return (at, a)
+    }
+
+    // MARK: - Multi-account discovery
+
+    static func discover(homeDirectory: String = NSHomeDirectory(),
+                         fileManager: FileManager = .default) -> CodexDiscovery {
+        let root = URL(fileURLWithPath: homeDirectory, isDirectory: true)
+        let defaultHome = root.appendingPathComponent(".codex", isDirectory: true)
+        var groups: [String: [CodexAccount]] = [:]
+
+        for home in candidateHomes(root: root, defaultHome: defaultHome, fileManager: fileManager) {
+            guard let account = readAccount(fromHome: home, defaultHome: defaultHome, fileManager: fileManager) else {
+                continue
+            }
+            groups[account.accountId, default: []].append(account)
+        }
+
+        var accounts: [CodexAccount] = []
+        var skipped: [CodexSkippedHome] = []
+        for (_, group) in groups {
+            let canonical = pickCanonical(group)
+            accounts.append(canonical)
+            for extra in group where extra.homePath != canonical.homePath {
+                skipped.append(CodexSkippedHome(
+                    homePath: extra.homePath,
+                    homeLabel: extra.homeLabel,
+                    duplicateOfLabel: canonical.homeLabel
+                ))
+            }
+        }
+        accounts.sort { a, b in
+            if a.isDefault != b.isDefault { return a.isDefault }
+            return a.homeLabel.localizedStandardCompare(b.homeLabel) == .orderedAscending
+        }
+        skipped.sort { $0.homeLabel.localizedStandardCompare($1.homeLabel) == .orderedAscending }
+        return CodexDiscovery(accounts: accounts, skipped: skipped)
+    }
+
+    static func discoverAccounts(homeDirectory: String = NSHomeDirectory(),
+                                 fileManager: FileManager = .default) -> [CodexAccount] {
+        discover(homeDirectory: homeDirectory, fileManager: fileManager).accounts
+    }
+
+    static func homeLabel(for home: URL, isDefault: Bool) -> String {
+        if isDefault { return "default" }
+        let name = home.lastPathComponent
+        if name.hasPrefix(".codex-") {
+            let suffix = String(name.dropFirst(".codex-".count))
+            if !suffix.isEmpty { return suffix }
+        }
+        return name
+    }
+
+    static func placeholder(_ account: CodexAccount) -> ProviderUsage {
+        ProviderUsage(
+            provider: .codex,
+            accountKey: account.accountId,
+            accountLabel: account.homeLabel,
+            accountEmail: account.email,
+            buckets: [],
+            plan: displayPlan(account.planHint),
+            planAccessory: nil,
+            error: nil,
+            updatedAt: nil
+        )
+    }
+
+    static func failed(account: CodexAccount, message: String) -> ProviderUsage {
+        var usage = placeholder(account)
+        usage.error = message
+        usage.updatedAt = Date()
+        return usage
+    }
+
+    private static func candidateHomes(root: URL, defaultHome: URL, fileManager: FileManager) -> [URL] {
+        var homes: [URL] = [defaultHome]
+        let items = (try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
+        )) ?? []
+        for url in items {
+            let name = url.lastPathComponent
+            guard name.hasPrefix(".codex-") else { continue }
+            var isDir: ObjCBool = false
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            homes.append(url)
+        }
+        var seen = Set<String>()
+        var unique: [URL] = []
+        for home in homes {
+            let key = home.standardizedFileURL.path
+            if seen.insert(key).inserted { unique.append(home) }
+        }
+        return unique
+    }
+
+    private static func readAccount(fromHome home: URL, defaultHome: URL, fileManager: FileManager) -> CodexAccount? {
+        let path = home.appendingPathComponent("auth.json").path
+        guard let data = fileManager.contents(atPath: path),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let tokens = root["tokens"] as? [String: Any] ?? [:]
+        guard tokens["access_token"] is String || tokens["refresh_token"] is String else { return nil }
+        let claims = chatgptClaims(idToken: tokens["id_token"] as? String)
+        let rawId = tokens["account_id"] as? String
+        let accountId = (rawId?.isEmpty == false ? rawId : nil) ?? claims.accountId
+        guard let accountId, !accountId.isEmpty else { return nil }
+
+        let isDefault = home.standardizedFileURL.path == defaultHome.standardizedFileURL.path
+        return CodexAccount(
+            accountId: accountId,
+            email: claims.email,
+            planHint: claims.plan,
+            homePath: home.path,
+            homeLabel: homeLabel(for: home, isDefault: isDefault),
+            isDefault: isDefault,
+            lastRefresh: Date.fromISO(root["last_refresh"] as? String) ?? .distantPast
+        )
+    }
+
+    private static func pickCanonical(_ group: [CodexAccount]) -> CodexAccount {
+        if let defaultHome = group.first(where: \.isDefault) { return defaultHome }
+        return group.max(by: { $0.lastRefresh < $1.lastRefresh }) ?? group[0]
     }
 
     private static func apiHeaders(_ token: String, _ accountId: String) -> [String: String] {
@@ -86,17 +226,61 @@ enum CodexProvider {
     }
 
     static func fetch() async throws -> ProviderUsage {
-        var auth = try loadAuth()
+        let accounts = discoverAccounts()
+        if let account = accounts.first(where: \.isDefault) ?? accounts.first {
+            return try await fetch(account: account)
+        }
+        return try await fetch(account: CodexAccount(
+            accountId: "",
+            email: nil,
+            planHint: nil,
+            homePath: defaultHomePath,
+            homeLabel: "default",
+            isDefault: true,
+            lastRefresh: .distantPast
+        ))
+    }
+
+    static func fetchAll(accounts: [CodexAccount]? = nil) async -> [ProviderUsage] {
+        let list = accounts ?? discoverAccounts()
+        if list.isEmpty {
+            var empty = ProviderUsage.empty(.codex)
+            empty.error = ProviderError.noCredentials("~/.codex/auth.json").errorDescription
+            empty.updatedAt = Date()
+            return [empty]
+        }
+        return await withTaskGroup(of: (Int, ProviderUsage).self) { group in
+            for (index, account) in list.enumerated() {
+                group.addTask {
+                    do {
+                        return (index, try await fetch(account: account))
+                    } catch let error as ProviderError {
+                        return (index, failed(account: account, message: error.errorDescription ?? "\(error)"))
+                    } catch {
+                        return (index, failed(account: account, message: error.localizedDescription))
+                    }
+                }
+            }
+            var gathered: [(Int, ProviderUsage)] = []
+            for await item in group { gathered.append(item) }
+            return gathered.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+    }
+
+    static func fetch(account: CodexAccount) async throws -> ProviderUsage {
+        let path = account.authPath
+        var auth = try loadAuth(path: path)
         var token = (auth.tokens["access_token"] as? String) ?? ""
-        let accountId = (auth.tokens["account_id"] as? String) ?? ""
+        let accountId = (auth.tokens["account_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ?? account.accountId
         let expired = token.isEmpty || (jwtExpiry(token).map { $0 <= Date().addingTimeInterval(300) } ?? true)
         if expired {   // 快過期 → 主動續期(Codex.app 沒幫忙時)
-            (token, auth) = try await refreshAndPersist(auth)
+            (token, auth) = try await refreshAndPersist(auth, path: path)
         }
 
         var (code, body) = try await callUsage(token, accountId)
         if code == 401 {   // token 意外失效 → 續期一次重試
-            (token, auth) = try await refreshAndPersist(auth)
+            (token, auth) = try await refreshAndPersist(auth, path: path)
             (code, body) = try await callUsage(token, accountId)
         }
         if code == 429 { throw ProviderError.rateLimited }
@@ -104,6 +288,12 @@ enum CodexProvider {
         guard code == 200 else { throw ProviderError.http(code) }
 
         var usage = try parseUsageResponse(body)
+        usage.accountKey = account.accountId
+        usage.accountLabel = account.homeLabel
+        usage.accountEmail = account.email
+        if usage.plan == nil {
+            usage.plan = displayPlan(account.planHint)
+        }
 
         // 手動重置：獨立端點有到期日；失敗時仍保留 usage 內的 available_count（無日期）
         if let (rc, rbody) = try? await callResetCredits(token, accountId), rc == 200 {

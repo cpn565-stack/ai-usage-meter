@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Codex 多帳號**：自動發現 `~/.codex` 與 `~/.codex-*`（`CODEX_HOME`，例如 `codex-work`），依 ChatGPT `account_id` 去重後並排顯示（`Codex · 預設` / `Codex · work`）。同一帳號的複本只認一份 canonical home（`~/.codex` 優先），refresh token 只寫回那份 `auth.json`。偏好設定可單獨開關帳號；選單列可鎖定其中一個或取 Codex 最高。
+
 ### Changed
 - **面板拋光**：header 上緣改為明確 16pt（之前貼邊太擠；注意 NSStackView 橫向排列時上下 edgeInsets 會被取成 `min(top, bottom)` 兩邊通用，所以上下留白改用外層 constraint 常數）、標題/狀態列間距、provider 段落與列間距放寬、進度條 7→8pt 藥丸形、底部動作列留白增加。
 

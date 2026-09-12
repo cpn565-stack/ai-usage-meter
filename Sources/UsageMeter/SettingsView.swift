@@ -71,11 +71,25 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
                                   action: #selector(intervalChanged))
         let launch = NSButton(checkboxWithTitle: Loc.tr("set.launch", lang), target: self, action: #selector(launchToggled))
         launch.state = LoginItem.isEnabled ? .on : .off
-        let providerChecks = ProviderID.allCases.map { p in
+        var providerRows: [NSView] = []
+        for p in ProviderID.allCases {
             let cb = NSButton(checkboxWithTitle: p.displayName, target: self, action: #selector(providerToggled))
             cb.state = Prefs.shared.isProviderEnabled(p) ? .on : .off
             cb.identifier = NSUserInterfaceItemIdentifier(p.rawValue)
-            return cb
+            providerRows.append(cb)
+            if p == .codex, Prefs.shared.isProviderEnabled(.codex) {
+                let accounts = CodexProvider.discover().accounts
+                if accounts.count > 1 {
+                    for account in accounts {
+                        let title = codexAccountTitle(account)
+                        let accountCb = NSButton(checkboxWithTitle: title, target: self, action: #selector(codexAccountToggled))
+                        accountCb.state = Prefs.shared.isCodexAccountEnabled(account.accountId) ? .on : .off
+                        accountCb.identifier = NSUserInterfaceItemIdentifier("codexAccount|\(account.accountId)")
+                        accountCb.toolTip = account.email
+                        providerRows.append(indented(accountCb))
+                    }
+                }
+            }
         }
         let checkUpdate = NSButton(title: Loc.tr("btn.checkUpdate", lang),
                                    target: self, action: #selector(checkUpdateTapped))
@@ -87,19 +101,20 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             labeledRow(Loc.tr("set.version", lang), makeLabel(appVersion(), size: 13, color: .secondaryLabelColor)),
             checkUpdate,
         ])
-        addSection(Loc.tr("set.providers", lang), rows: providerChecks)
+        addSection(Loc.tr("set.providers", lang), rows: providerRows)
 
         // ── 選單列顯示 ──
-        let providers = ProviderID.allCases.filter { Prefs.shared.isProviderEnabled($0) }
-        let provOpts = ["all"] + providers.map { $0.rawValue }
-        let provTitles = [Loc.tr("menu.all", lang)] + providers.map { $0.displayName }
+        let sources = store.menuSources(lang: lang)
+        let provOpts = sources.map(\.id)
+        let provTitles = sources.map(\.title)
         let provPopup = popup(provTitles,
                               selected: provOpts.firstIndex(of: Prefs.shared.menuProvider) ?? 0,
                               action: #selector(menuProviderChanged))
         var menubarRows: [NSView] = [labeledRow(Loc.tr("set.menubar", lang), provPopup)]
-        if let p = ProviderID(rawValue: Prefs.shared.menuProvider) {
-            let keys = [""] + store.enabledBuckets(p).map { $0.key }
-            let titles = [Loc.tr("bucket.max", lang)] + store.enabledBuckets(p).map { Loc.tr($0.label, lang) }
+        if let windowUsage = menuWindowUsage() {
+            let shown = store.enabledBuckets(for: windowUsage)
+            let keys = [""] + shown.map(\.key)
+            let titles = [Loc.tr("bucket.max", lang)] + shown.map { Loc.tr($0.label, lang) }
             let bucketPopup = popup(titles,
                                     selected: keys.firstIndex(of: Prefs.shared.menuBucketKey) ?? 0,
                                     action: #selector(menuBucketChanged))
@@ -109,27 +124,33 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
         // ── 顯示細項(各家逐項勾選)──
         var displayRows: [NSView] = []
-        for p in ProviderID.allCases {
-            let all = store.results[p]?.buckets ?? []
-            displayRows.append(makeLabel(p.displayName, size: 12, weight: .semibold))
-            if !Prefs.shared.isProviderEnabled(p) {
+        let multiCodex = store.visibleCodexCount > 1
+        var didShowCodexReset = false
+        for usage in store.orderedUsages() {
+            let p = usage.provider
+            displayRows.append(makeLabel(usage.rowTitle(multiCodex: multiCodex, lang: lang), size: 12, weight: .semibold))
+            if !Prefs.shared.isProviderEnabled(p)
+                || (p == .codex && !usage.accountKey.isEmpty && !Prefs.shared.isCodexAccountEnabled(usage.accountKey)) {
                 displayRows.append(makeLabel(Loc.tr("row.disabled", lang), size: 11, color: .secondaryLabelColor))
-            } else if all.isEmpty {
+                continue
+            }
+            let all = usage.buckets
+            if all.isEmpty {
                 displayRows.append(makeLabel(Loc.tr("row.loading", lang), size: 11, color: .secondaryLabelColor))
             } else {
                 for b in all {
                     let cb = NSButton(checkboxWithTitle: Loc.tr(b.label, lang), target: self, action: #selector(bucketToggled))
-                    cb.state = Prefs.shared.isOn(p.rawValue, b.key, buckets: all) ? .on : .off
-                    cb.identifier = NSUserInterfaceItemIdentifier("\(p.rawValue)|\(b.key)")
+                    cb.state = Prefs.shared.isOn(usage.slotID, b.key, buckets: all) ? .on : .off
+                    cb.identifier = NSUserInterfaceItemIdentifier("\(usage.slotID)|\(b.key)")
                     displayRows.append(cb)
                 }
-                // Codex：與窗口細項並列，可關閉 plan 旁「重置 ×N」徽章
-                if p == .codex {
-                    let resetCb = NSButton(checkboxWithTitle: Loc.tr("codex.reset.show", lang),
-                                           target: self, action: #selector(codexResetShowToggled))
-                    resetCb.state = Prefs.shared.showCodexResetCredits ? .on : .off
-                    displayRows.append(resetCb)
-                }
+            }
+            if p == .codex, !didShowCodexReset, Prefs.shared.isProviderEnabled(.codex) {
+                let resetCb = NSButton(checkboxWithTitle: Loc.tr("codex.reset.show", lang),
+                                       target: self, action: #selector(codexResetShowToggled))
+                resetCb.state = Prefs.shared.showCodexResetCredits ? .on : .off
+                displayRows.append(resetCb)
+                didShowCodexReset = true
             }
         }
         addSection(Loc.tr("set.display", lang), rows: displayRows)
@@ -149,6 +170,37 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         for r in rows where r is NSStackView {
             r.widthAnchor.constraint(equalTo: section.widthAnchor).isActive = true
         }
+    }
+
+    private func indented(_ view: NSView, pad: CGFloat = 18) -> NSView {
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.widthAnchor.constraint(equalToConstant: pad).isActive = true
+        spacer.setContentHuggingPriority(.required, for: .horizontal)
+        let h = NSStackView(views: [spacer, view])
+        h.orientation = .horizontal
+        h.spacing = 0
+        h.alignment = .centerY
+        return h
+    }
+
+    private func codexAccountTitle(_ account: CodexAccount) -> String {
+        let label = account.homeLabel == "default" ? Loc.tr("codex.home.default", lang) : account.homeLabel
+        if let plan = CodexProvider.displayPlan(account.planHint) {
+            return "\(label) · \(plan)"
+        }
+        return label
+    }
+
+    /// 選單列「窗口」只在鎖定單一來源（含單一 Codex 帳號）時出現。
+    private func menuWindowUsage() -> ProviderUsage? {
+        let mp = Prefs.shared.menuProvider
+        if mp.hasPrefix("codex:") {
+            return store.usage(slotID: mp)
+        }
+        guard let p = ProviderID(rawValue: mp) else { return nil }
+        if p == .codex, store.visibleCodexCount > 1 { return nil }
+        return store.usages(for: p).first
     }
 
     private func labeledRow(_ title: String, _ control: NSView) -> NSView {
@@ -211,22 +263,30 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         }
     }
     @objc private func menuProviderChanged(_ sender: NSPopUpButton) {
-        let opts = ["all"] + ProviderID.allCases.filter { Prefs.shared.isProviderEnabled($0) }.map { $0.rawValue }
+        let opts = store.menuSources(lang: lang).map(\.id)
+        guard sender.indexOfSelectedItem >= 0, sender.indexOfSelectedItem < opts.count else { return }
         Prefs.shared.menuProvider = opts[sender.indexOfSelectedItem]
         Prefs.shared.menuBucketKey = ""
     }
     @objc private func menuBucketChanged(_ sender: NSPopUpButton) {
-        guard let p = ProviderID(rawValue: Prefs.shared.menuProvider) else { return }
-        let keys = [""] + store.enabledBuckets(p).map { $0.key }
+        guard let usage = menuWindowUsage() else { return }
+        let keys = [""] + store.enabledBuckets(for: usage).map(\.key)
         guard sender.indexOfSelectedItem < keys.count else { return }
         Prefs.shared.menuBucketKey = keys[sender.indexOfSelectedItem]
     }
     @objc private func bucketToggled(_ sender: NSButton) {
         guard let id = sender.identifier?.rawValue else { return }
         let parts = id.split(separator: "|", maxSplits: 1).map(String.init)
-        guard parts.count == 2, let p = ProviderID(rawValue: parts[0]) else { return }
-        let all = store.results[p]?.buckets ?? []
-        Prefs.shared.toggle(p.rawValue, parts[1], on: sender.state == .on, buckets: all)
+        guard parts.count == 2 else { return }
+        let all = store.usage(slotID: parts[0])?.buckets ?? []
+        Prefs.shared.toggle(parts[0], parts[1], on: sender.state == .on, buckets: all)
+    }
+    @objc private func codexAccountToggled(_ sender: NSButton) {
+        guard let raw = sender.identifier?.rawValue else { return }
+        let parts = raw.split(separator: "|", maxSplits: 1).map(String.init)
+        guard parts.count == 2, parts[0] == "codexAccount" else { return }
+        Prefs.shared.setCodexAccount(parts[1], enabled: sender.state == .on)
+        Task { await store.refresh(.codex) }
     }
     @objc private func codexResetShowToggled(_ sender: NSButton) {
         Prefs.shared.showCodexResetCredits = (sender.state == .on)

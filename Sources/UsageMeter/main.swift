@@ -75,29 +75,42 @@ if CommandLine.arguments.contains("--self-test")
 if CommandLine.arguments.contains("--once") {
     let sem = DispatchSemaphore(value: 0)
     Task {
+        func line(_ b: UsageBucket) -> String {
+            let label = Loc.tr(b.label, .zhHant)
+            var s = "\(label): \(Int(b.usedPercent.rounded()))%"
+            if !formatReset(b.resetsAt, lang: .zhHant).isEmpty {
+                s += " (\(formatReset(b.resetsAt, lang: .zhHant)))"
+            }
+            return s
+        }
+        func printUsage(_ u: ProviderUsage, multiCodex: Bool) async {
+            var planBits: [String] = []
+            if let p = u.plan { planBits.append(p) }
+            let showCodexReset = await MainActor.run { Prefs.shared.showCodexResetCredits }
+            if let a = u.planAccessory,
+               (u.provider != .codex || showCodexReset) {
+                planBits.append(a)
+            }
+            let plan = planBits.isEmpty ? "" : " [\(planBits.joined(separator: " · "))]"
+            let cols = u.buckets.map(line).joined(separator: "  ")
+            let name = u.rowTitle(multiCodex: multiCodex, lang: .zhHant)
+            if let err = u.error, u.buckets.isEmpty {
+                print("\(name)  ✗ \(err)")
+            } else {
+                print("\(name)\(plan)  \(cols)")
+            }
+        }
         for p in ProviderID.allCases {
-            do {
-                let u = try await fetchProvider(p)
-                func line(_ b: UsageBucket) -> String {
-                    let label = Loc.tr(b.label, .zhHant)
-                    var s = "\(label): \(Int(b.usedPercent.rounded()))%"
-                    if !formatReset(b.resetsAt, lang: .zhHant).isEmpty {
-                        s += " (\(formatReset(b.resetsAt, lang: .zhHant)))"
-                    }
-                    return s
+            if p == .codex {
+                let usages = await CodexProvider.fetchAll()
+                let multi = usages.filter { !$0.accountKey.isEmpty }.count > 1
+                for u in usages { await printUsage(u, multiCodex: multi) }
+            } else {
+                do {
+                    await printUsage(try await fetchProvider(p), multiCodex: false)
+                } catch {
+                    print("\(p.displayName)  ✗ \(error.localizedDescription)")
                 }
-                var planBits: [String] = []
-                if let p = u.plan { planBits.append(p) }
-                let showCodexReset = await MainActor.run { Prefs.shared.showCodexResetCredits }
-                if let a = u.planAccessory,
-                   (u.provider != .codex || showCodexReset) {
-                    planBits.append(a)
-                }
-                let plan = planBits.isEmpty ? "" : " [\(planBits.joined(separator: " · "))]"
-                let cols = u.buckets.map(line).joined(separator: "  ")
-                print("\(u.provider.displayName)\(plan)  \(cols)")
-            } catch {
-                print("\(p.displayName)  ✗ \(error.localizedDescription)")
             }
         }
         sem.signal()

@@ -66,6 +66,10 @@ final class Prefs: ObservableObject {
     @Published var showCodexResetCredits: Bool {
         didSet { d.set(showCodexResetCredits, forKey: "showCodexResetCredits") }
     }
+    /// 停用的 Codex account_id。空 = 發現到的帳號都讀。
+    @Published private var disabledCodexAccounts: [String] {
+        didSet { d.set(disabledCodexAccounts, forKey: "disabledCodexAccounts") }
+    }
 
     private init() {
         language = AppLanguage(rawValue: d.string(forKey: "language") ?? "") ?? .system
@@ -91,6 +95,7 @@ final class Prefs: ObservableObject {
         } else {
             showCodexResetCredits = d.bool(forKey: "showCodexResetCredits")
         }
+        disabledCodexAccounts = d.stringArray(forKey: "disabledCodexAccounts") ?? []
     }
 
     func isProviderEnabled(_ provider: ProviderID) -> Bool {
@@ -101,10 +106,34 @@ final class Prefs: ObservableObject {
         var set = Set(disabledProviders)
         if isEnabled { set.remove(provider.rawValue) } else { set.insert(provider.rawValue) }
         disabledProviders = Array(set).sorted()
-        if !isEnabled, menuProvider == provider.rawValue {
+        if !isEnabled, menuProvider == provider.rawValue || (provider == .codex && menuProvider.hasPrefix("codex:")) {
             menuProvider = "all"
             menuBucketKey = ""
         }
+    }
+
+    func isCodexAccountEnabled(_ accountId: String) -> Bool {
+        guard !accountId.isEmpty else { return true }
+        return !disabledCodexAccounts.contains(accountId)
+    }
+
+    func setCodexAccount(_ accountId: String, enabled isEnabled: Bool) {
+        guard !accountId.isEmpty else { return }
+        var set = Set(disabledCodexAccounts)
+        if isEnabled { set.remove(accountId) } else { set.insert(accountId) }
+        disabledCodexAccounts = Array(set).sorted()
+        if !isEnabled, menuProvider == "codex:\(accountId)" {
+            menuProvider = "all"
+            menuBucketKey = ""
+        }
+    }
+
+    /// `codex:<accountId>` 沒存過時沿用舊的 `codex` 細項選擇。
+    private func legacyPrefsKey(_ provider: String) -> String {
+        if let idx = provider.firstIndex(of: ":") {
+            return String(provider[..<idx])
+        }
+        return provider
     }
 
     /// 該家目前實際啟用的 bucket key 集合(沒存過就用 defaultOn)。
@@ -114,14 +143,15 @@ final class Prefs: ObservableObject {
     /// 避免 fallback 時代存下的舊子集把新桶永久隱藏；使用者親手關掉的（看過但不在存檔）維持關閉。
     func effectiveEnabled(_ provider: String, buckets: [UsageBucket]) -> Set<String> {
         let available = Set(buckets.map(\.key))
-        var seen = Set(seenBuckets[provider] ?? [])
+        let legacy = legacyPrefsKey(provider)
+        var seen = Set(seenBuckets[provider] ?? seenBuckets[legacy] ?? [])
         let fresh = available.subtracting(seen)
         if !fresh.isEmpty {
             seen.formUnion(available)
             seenBuckets[provider] = Array(seen)
         }
         let defaults = Set(buckets.filter { $0.defaultOn }.map { $0.key })
-        guard let saved = enabled[provider] else { return defaults }
+        guard let saved = enabled[provider] ?? enabled[legacy] else { return defaults }
         let kept = Set(saved).intersection(available)
         if kept.isEmpty {
             // 存過的 key 與目前完全不重疊（schema 變更）→ 回 defaultOn 並清掉舊存檔
@@ -159,6 +189,7 @@ final class Prefs: ObservableObject {
         var enabled: [String: [String]]
         var seenBuckets: [String: [String]]
         var showCodexResetCredits: Bool
+        var disabledCodexAccounts: [String]
     }
 
     func snapshotForTest() -> Snapshot {
@@ -166,7 +197,8 @@ final class Prefs: ObservableObject {
                  menuProvider: menuProvider, menuBucketKey: menuBucketKey,
                  disabledProviders: disabledProviders, enabled: enabled,
                  seenBuckets: seenBuckets,
-                 showCodexResetCredits: showCodexResetCredits)
+                 showCodexResetCredits: showCodexResetCredits,
+                 disabledCodexAccounts: disabledCodexAccounts)
     }
 
     func restoreForTest(_ s: Snapshot) {
@@ -178,12 +210,14 @@ final class Prefs: ObservableObject {
         enabled = s.enabled
         seenBuckets = s.seenBuckets
         showCodexResetCredits = s.showCodexResetCredits
+        disabledCodexAccounts = s.disabledCodexAccounts
     }
 
     /// 測試用:啟用全部 provider,並覆寫各家顯示的 bucket keys。
     /// seen 預設等於顯示的 keys（「只看過這些」）；要模擬「看過全部再關掉幾個」時請傳完整集合。
     func applyTestDisplay(enabledProviders: [ProviderID], buckets: [ProviderID: [String]],
                           seen: [ProviderID: [String]]? = nil) {
+        disabledCodexAccounts = []
         disabledProviders = ProviderID.allCases
             .filter { !enabledProviders.contains($0) }
             .map(\.rawValue)
