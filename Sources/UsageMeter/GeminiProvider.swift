@@ -1,8 +1,8 @@
 import Foundation
 
 /// Gemini / Antigravity:讀 Antigravity 在 Keychain 的 Google OAuth token(go-keyring 格式)。
-/// 優先 `v1internal:retrieveUserQuotaSummary`（官方 Model Quota：Gemini Models / Claude and GPT models
-/// 各有 weekly + 5h）；失敗再退回 `fetchAvailableModels` 依 modelProvider 歸兩池推斷。
+/// 優先 `v1internal:retrieveUserQuotaSummary`（官方 Model Quota：Gemini Models、Gemini 4 Argon、
+/// Claude and GPT models）；失敗再退回 `fetchAvailableModels` 依 modelProvider 歸池推斷。
 /// Keychain 只在首次(或刷新失敗)時讀取,之後 token 在記憶體快取、靠 refresh token 換新,避免每次更新都跳權限詢問。
 enum GeminiProvider {
     // Antigravity 的公開 OAuth client(由社群逆向 opencode-antigravity-auth 取得)。
@@ -12,7 +12,10 @@ enum GeminiProvider {
     // Antigravity 官方 UI 與 agy CLI 走 daily channel；stable host 的 Gemini 池會與官方不符
     //（3p 池兩邊一致，只有 Gemini 池不同），故跟官方用同一個 host。
     static let base = "https://daily-cloudcode-pa.googleapis.com"
-    static let userAgent = "antigravity/windows/amd64"
+    // 2026-10-17 起，daily 的 retrieveUserQuotaSummary 依 User-Agent 的 subclient 過濾群組。
+    // 舊的 `antigravity/windows/amd64` 只回 Claude/GPT；`cli`（或 `hub`）才回 Gemini Models
+    // 與 Gemini 4 Argon。路徑裡要有 cli/hub，版本號本身不是門檻。
+    static let userAgent = "antigravity/cli/1.4.0 (aidev_client; os_type=darwin; arch=arm64)"
     static let keychainService = "gemini"
     static let keychainAccount = "antigravity"
     /// 舊版曾把 token 放 Keychain（每次 refresh 易彈密碼）；改存 Application Support 檔案。
@@ -295,10 +298,11 @@ enum GeminiProvider {
         return makeUsage(from: samples)
     }
 
-    /// 官方 UI 順序：每組先 Weekly 再 Five Hour；Gemini 在前、Claude/GPT 在後。
+    /// 官方 UI 順序：每組先 Weekly 再 Five Hour；Gemini、Argon、Claude/GPT。
     private static func makeUsage(from samples: [String: (used: Double, reset: Date?)]) -> ProviderUsage {
         let preferredOrder = [
             "gemini.week", "gemini.5h",
+            "argon.week", "argon.5h",
             "partner.week", "partner.5h",
         ]
         var buckets: [UsageBucket] = []
@@ -326,8 +330,10 @@ enum GeminiProvider {
     }
 
     /// 從 summary group 的 displayName / bucketId 推家族。
+    /// Argon 的顯示名是「Gemini 4 Argon」，必須先於一般 Gemini 判斷，否則週額度會被 max 併進 Gemini 池。
     private static func familyFromGroup(_ group: [String: Any]) -> QuotaFamily? {
         let name = ((group["displayName"] as? String) ?? "").lowercased()
+        if name.contains("argon") { return .argon }
         if name.contains("claude") || name.contains("gpt") || name.contains("3p") {
             return .partner
         }
@@ -337,6 +343,7 @@ enum GeminiProvider {
         // 看第一個 bucketId
         if let buckets = group["buckets"] as? [[String: Any]],
            let id = (buckets.first?["bucketId"] as? String)?.lowercased() {
+            if id.contains("argon") { return .argon }
             if id.hasPrefix("3p") || id.contains("claude") || id.contains("gpt") { return .partner }
             if id.hasPrefix("gemini") { return .gemini }
         }
@@ -366,9 +373,10 @@ enum GeminiProvider {
 
     // MARK: - Family / window helpers
 
-    /// 額度家族：Gemini Models vs Claude and GPT models（官方 3p / partner 池）。
+    /// 額度家族：Gemini Models、Gemini 4 Argon（獨立週額度）、Claude and GPT models（官方 3p / partner 池）。
     enum QuotaFamily: String {
         case gemini
+        case argon
         case partner   // Claude + GPT 共用池（API bucketId 前綴 3p-）
     }
 
@@ -381,6 +389,8 @@ enum GeminiProvider {
         let provider = ((info["modelProvider"] as? String) ?? "").uppercased()
         let api = ((info["apiProvider"] as? String) ?? "").uppercased()
         let display = ((info["displayName"] as? String) ?? "").lowercased()
+
+        if lower.contains("argon") || display.contains("argon") { return .argon }
 
         let isPartner =
             provider.contains("ANTHROPIC") || provider.contains("OPENAI")
@@ -425,6 +435,8 @@ enum GeminiProvider {
         switch key {
         case "gemini.5h":    labelKey = "gemini.bucket.gemini.5h"
         case "gemini.week":  labelKey = "gemini.bucket.gemini.week"
+        case "argon.5h":     labelKey = "gemini.bucket.argon.5h"
+        case "argon.week":   labelKey = "gemini.bucket.argon.week"
         case "partner.5h":   labelKey = "gemini.bucket.partner.5h"
         case "partner.week": labelKey = "gemini.bucket.partner.week"
         default:             labelKey = key

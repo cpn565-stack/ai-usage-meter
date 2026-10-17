@@ -91,6 +91,7 @@ enum PanelLayoutSelfTests {
         for usage in fixture.values { for b in usage.buckets { keys.insert(b.label) } }
         keys.formUnion(["win.5h", "win.week",
                         "gemini.bucket.gemini.5h", "gemini.bucket.gemini.week",
+                        "gemini.bucket.argon.5h", "gemini.bucket.argon.week",
                         "gemini.bucket.partner.5h", "gemini.bucket.partner.week",
                         "grok.chat", "grok.build", "grok.imagine", "grok.other"])
         for lang in [AppLanguage.zhHant, AppLanguage.ja, AppLanguage.en] {

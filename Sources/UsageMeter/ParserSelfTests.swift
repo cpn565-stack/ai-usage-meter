@@ -295,6 +295,19 @@ enum ParserSelfTests {
                   "remainingFraction": 0.3064544
                 }
               ]
+            },
+            {
+              "displayName": "Gemini 4 Argon",
+              "description": "Separate weekly Argon quota",
+              "buckets": [
+                {
+                  "bucketId": "gemini-argon-wtu-weekly",
+                  "displayName": "Gemini 4 Argon Weekly Limit",
+                  "window": "weekly",
+                  "resetTime": "2026-10-24T01:22:20Z",
+                  "remainingFraction": 0.8049512
+                }
+              ]
             }
           ]
         }
@@ -304,16 +317,18 @@ enum ParserSelfTests {
         try expect(usage.plan == "Antigravity", "Gemini plan mismatch")
         // 官方順序：每組先週再 5h
         try expect(usage.buckets.map(\.key) == [
-            "gemini.week", "gemini.5h", "partner.week", "partner.5h",
+            "gemini.week", "gemini.5h", "argon.week", "partner.week", "partner.5h",
         ], "Gemini summary keys mismatch: \(usage.buckets.map(\.key))")
         try expect(usage.buckets.map(\.label) == [
             "gemini.bucket.gemini.week", "gemini.bucket.gemini.5h",
+            "gemini.bucket.argon.week",
             "gemini.bucket.partner.week", "gemini.bucket.partner.5h",
         ], "Gemini summary labels mismatch")
         try expect(Int(usage.buckets[0].usedPercent.rounded()) == 14, "Gemini week used% (1-0.856)")
         try expect(Int(usage.buckets[1].usedPercent.rounded()) == 80, "Gemini 5h used% (1-0.204)")
-        try expect(Int(usage.buckets[2].usedPercent.rounded()) == 24, "Partner week used%")
-        try expect(Int(usage.buckets[3].usedPercent.rounded()) == 69, "Partner 5h used%")
+        try expect(Int(usage.buckets[2].usedPercent.rounded()) == 20, "Argon week used% (1-0.805); must not merge into Gemini")
+        try expect(Int(usage.buckets[3].usedPercent.rounded()) == 24, "Partner week used%")
+        try expect(Int(usage.buckets[4].usedPercent.rounded()) == 69, "Partner 5h used%")
         try expect(usage.buckets.allSatisfy(\.defaultOn), "Gemini buckets should default on")
 
         // 退回路徑：fetchAvailableModels 歸兩池

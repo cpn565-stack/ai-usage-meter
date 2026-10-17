@@ -84,6 +84,8 @@ enum Loc {
         // Antigravity 官方 Model Quota：Gemini Models / Claude and GPT models × Weekly + Five Hour
         "gemini.bucket.gemini.5h":   [.zhHant: "Gemini · 5 小時", .ja: "Gemini · 5時間", .en: "Gemini · 5h"],
         "gemini.bucket.gemini.week": [.zhHant: "Gemini · 週",     .ja: "Gemini · 週間",  .en: "Gemini · Week"],
+        "gemini.bucket.argon.5h":    [.zhHant: "Argon · 5 小時",  .ja: "Argon · 5時間",  .en: "Argon · 5h"],
+        "gemini.bucket.argon.week":  [.zhHant: "Argon · 週",      .ja: "Argon · 週間",   .en: "Argon · Week"],
         "gemini.bucket.partner.5h":  [.zhHant: "Claude/GPT · 5 小時", .ja: "Claude/GPT · 5時間", .en: "Claude/GPT · 5h"],
         "gemini.bucket.partner.week":[.zhHant: "Claude/GPT · 週",   .ja: "Claude/GPT · 週間", .en: "Claude/GPT · Week"],
     ]
