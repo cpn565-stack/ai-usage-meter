@@ -11,6 +11,7 @@ enum ParserSelfTests {
         try testClaudeLimitsListParsing()
         try testCodexUsageParsing()
         try testCodexAccountDiscovery()
+        try testGeminiAccountDiscovery()
         try testGeminiModelsParsing()
         try testGrokBillingParsing()
         try testUnexpectedShapeIsApiChanged()
@@ -19,6 +20,7 @@ enum ParserSelfTests {
             "✓ Claude limits list fixture",
             "✓ Codex parser fixture",
             "✓ Codex multi-account discovery",
+            "✓ Gemini aisw profile discovery",
             "✓ Gemini parser fixture",
             "✓ Grok billing fixture",
             "✓ Unexpected shape reports API change",
@@ -249,6 +251,81 @@ enum ParserSelfTests {
             ],
         ]
         return "\(b64(header)).\(b64(payload)).x"
+    }
+
+    private static func testGeminiAccountDiscovery() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("um-agy-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        try writeFakeAgyProfile(home: root, name: "account1", email: "One@Example.com",
+                                modified: Date(timeIntervalSince1970: 1_700_000_000))
+        try writeFakeAgyProfile(home: root, name: "account1-copy", email: "one@example.com",
+                                modified: Date(timeIntervalSince1970: 1_800_000_000))
+        try writeFakeAgyProfile(home: root, name: "account2", email: "two@example.com",
+                                modified: Date(timeIntervalSince1970: 1_600_000_000))
+        try writeFakeAgyProfile(home: root, name: "no-email", email: nil,
+                                modified: Date(timeIntervalSince1970: 1_500_000_000))
+        let junk = root.appendingPathComponent(".aisw/profiles/antigravity/broken", isDirectory: true)
+        try fm.createDirectory(at: junk, withIntermediateDirectories: true)
+        try "not-a-token".write(to: junk.appendingPathComponent("keyring-secret.json"), atomically: true, encoding: .utf8)
+        try writeAiswActive(home: root, name: "account1")
+
+        let first = GeminiProvider.discover(homeDirectory: root.path, fileManager: fm)
+        try expect(first.accounts.map(\.profileName) == ["account1", "account2", "no-email"],
+                   "active first, then name; got \(first.accounts.map(\.profileName))")
+        let one = first.accounts.first { $0.profileName == "account1" }
+        try expect(one?.isActive == true, "account1 is the aisw active profile")
+        try expect(one?.accountKey == "one@example.com", "account key is lowercased email")
+        try expect(one?.email == "One@Example.com", "display email keeps the file value")
+        try expect(first.skipped.contains { $0.profileName == "account1-copy" && $0.duplicateOf == "account1" },
+                   "older active profile wins over a newer duplicate")
+        try expect(first.accounts.first { $0.profileName == "no-email" }?.accountKey == "no-email",
+                   "missing email falls back to the profile name")
+        let activeRow = GeminiProvider.placeholder(first.accounts[0])
+        try expect(activeRow.slotID == "gemini:one@example.com", "slot id uses the email key")
+        try expect(activeRow.rowTitle(multiCodex: false, multiGemini: true, lang: .zhHant) == "Gemini · account1",
+                   "multi-account row title uses the aisw profile name")
+
+        // 之後在 aisw 新增的 profile，下一輪掃描要自己出現。
+        try writeFakeAgyProfile(home: root, name: "account3", email: "three@example.com",
+                                modified: Date(timeIntervalSince1970: 1_900_000_000))
+        let second = GeminiProvider.discover(homeDirectory: root.path, fileManager: fm)
+        try expect(second.accounts.map(\.profileName) == ["account1", "account2", "account3", "no-email"],
+                   "a newly added aisw profile shows up on the next scan, got \(second.accounts.map(\.profileName))")
+
+        let empty = GeminiProvider.discover(homeDirectory: root.appendingPathComponent("missing").path, fileManager: fm)
+        try expect(empty.accounts.isEmpty, "no aisw dir means no extra accounts")
+    }
+
+    private static func writeAiswActive(home: URL, name: String) throws {
+        let dir = home.appendingPathComponent(".aisw", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let obj: [String: Any] = ["version": 2, "active": ["antigravity": name]]
+        let data = try JSONSerialization.data(withJSONObject: obj)
+        try data.write(to: dir.appendingPathComponent("config.json"))
+    }
+
+    private static func writeFakeAgyProfile(home: URL, name: String, email: String?, modified: Date) throws {
+        let dir = home.appendingPathComponent(".aisw/profiles/antigravity/\(name)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let token: [String: Any] = [
+            "access_token": "at-\(name)",
+            "token_type": "Bearer",
+            "refresh_token": "rt-\(name)",
+            "expiry": "2020-01-01T00:00:00Z",
+        ]
+        var obj: [String: Any] = ["token": token, "auth_method": "consumer"]
+        if let email { obj["id_token_email"] = email }
+        let json = try JSONSerialization.data(withJSONObject: obj)
+        let text = "go-keyring-base64:" + json.base64EncodedString()
+        let secret = dir.appendingPathComponent("keyring-secret.json")
+        try text.write(to: secret, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.modificationDate: modified, .posixPermissions: 0o600],
+            ofItemAtPath: secret.path
+        )
     }
 
     private static func testGeminiModelsParsing() throws {

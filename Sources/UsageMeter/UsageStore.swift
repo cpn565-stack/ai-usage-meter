@@ -14,12 +14,13 @@ func fetchProvider(_ p: ProviderID) async throws -> ProviderUsage {
 
 @MainActor
 final class UsageStore: ObservableObject {
-    /// 以 slotID 為鍵（Claude/Gemini/Grok 仍是 provider rawValue；Codex 多帳號是 `codex:<accountId>`）。
+    /// 以 slotID 為鍵（單帳號是 provider rawValue；多帳號是 `codex:<id>` / `gemini:<email>`）。
     @Published var results: [String: ProviderUsage] = [:]
     @Published var isRefreshing = false
     @Published var lastRefresh: Date?
     @Published var lastSuccessfulRefresh: Date?
     @Published var codexDiscovery = CodexDiscovery(accounts: [], skipped: [])
+    @Published var geminiDiscovery = GeminiDiscovery(accounts: [], skipped: [])
 
     private var timer: Timer?
     private var backoffUntil: [String: Date] = [:]
@@ -32,6 +33,7 @@ final class UsageStore: ObservableObject {
         for p in ProviderID.allCases { results[p.rawValue] = .empty(p) }
         if !skipInitialRefresh {
             seedCodexPlaceholders()
+            seedGeminiPlaceholders()
             Task { await refreshAll() }
         }
         // 更新頻率改變時重設計時器。
@@ -70,8 +72,18 @@ final class UsageStore: ObservableObject {
     /// 資料過舊才重抓(用於打開選單時)。
     func refreshIfStale(_ minInterval: TimeInterval) async {
         if isRefreshing { return }
-        if let last = lastRefresh, Date().timeIntervalSince(last) < minInterval { return }
-        await refreshAll()
+        let geminiIDs = Set(GeminiProvider.discover().accounts.map(\.accountKey))
+        let codexIDs = Set(CodexProvider.discover().accounts.map(\.accountId))
+        let geminiChanged = geminiIDs != Set(geminiDiscovery.accounts.map(\.accountKey))
+        let codexChanged = codexIDs != Set(codexDiscovery.accounts.map(\.accountId))
+        let stale = lastRefresh.map { Date().timeIntervalSince($0) >= minInterval } ?? true
+        if stale {
+            await refreshAll()
+            return
+        }
+        // 資料還新，但 aisw / CODEX_HOME 剛多（或少）了一個帳號：只補抓那一家。
+        if geminiChanged { await refresh(.gemini) }
+        if codexChanged { await refresh(.codex) }
     }
 
     private func reschedule(_ iv: PollInterval) {
@@ -107,7 +119,14 @@ final class UsageStore: ObservableObject {
             await refreshCodex()
             return
         }
+        if p == .gemini {
+            await refreshGemini()
+            return
+        }
+        await refreshSingleSlot(p)
+    }
 
+    private func refreshSingleSlot(_ p: ProviderID) async {
         let slot = p.rawValue
         if let until = backoffUntil[slot], Date() < until { return }
         do {
@@ -183,6 +202,69 @@ final class UsageStore: ObservableObject {
         }
     }
 
+    private func refreshGemini() async {
+        let discovery = GeminiProvider.discover()
+        geminiDiscovery = discovery
+        let wanted = discovery.accounts.filter { Prefs.shared.isGeminiAccountEnabled($0.accountKey) }
+        let wantedIDs = Set(wanted.map(\.accountKey))
+
+        if discovery.accounts.isEmpty {
+            for key in Array(results.keys) where key.hasPrefix("gemini:") {
+                results[key] = nil
+                backoffUntil[key] = nil
+                backoffStep[key] = nil
+            }
+            await refreshSingleSlot(.gemini)
+            return
+        }
+
+        results[ProviderID.gemini.rawValue] = nil
+        for key in Array(results.keys) {
+            guard results[key]?.provider == .gemini else { continue }
+            let accountKey = results[key]?.accountKey ?? ""
+            if accountKey.isEmpty || !wantedIDs.contains(accountKey) {
+                results[key] = nil
+                backoffUntil[key] = nil
+                backoffStep[key] = nil
+            }
+        }
+
+        if wanted.isEmpty { return }
+
+        for account in wanted {
+            let usage = GeminiProvider.placeholder(account)
+            if results[usage.slotID] == nil {
+                results[usage.slotID] = usage
+            }
+        }
+
+        await withTaskGroup(of: (String, ProviderUsage, ProviderError?).self) { group in
+            for account in wanted {
+                let slot = GeminiProvider.placeholder(account).slotID
+                if let until = backoffUntil[slot], Date() < until { continue }
+                group.addTask {
+                    do {
+                        return (slot, try await GeminiProvider.fetch(account: account), nil)
+                    } catch let error as ProviderError {
+                        return (slot, GeminiProvider.failed(account: account, message: error.errorDescription ?? "\(error)"), error)
+                    } catch {
+                        return (slot, GeminiProvider.failed(account: account, message: error.localizedDescription), nil)
+                    }
+                }
+            }
+            for await (slot, usage, error) in group {
+                if let error {
+                    applyFailure(slot: slot, provider: .gemini, existing: usage, error: error)
+                } else {
+                    results[slot] = usage
+                    lastSuccessfulRefresh = Date()
+                    backoffStep[slot] = nil
+                    backoffUntil[slot] = nil
+                }
+            }
+        }
+    }
+
     private func seedCodexPlaceholders() {
         guard Prefs.shared.isProviderEnabled(.codex) else { return }
         let discovery = CodexProvider.discover()
@@ -196,13 +278,27 @@ final class UsageStore: ObservableObject {
         }
     }
 
+    private func seedGeminiPlaceholders() {
+        guard Prefs.shared.isProviderEnabled(.gemini) else { return }
+        let discovery = GeminiProvider.discover()
+        geminiDiscovery = discovery
+        let wanted = discovery.accounts.filter { Prefs.shared.isGeminiAccountEnabled($0.accountKey) }
+        guard !wanted.isEmpty else { return }
+        results.removeValue(forKey: ProviderID.gemini.rawValue)
+        for account in wanted {
+            let usage = GeminiProvider.placeholder(account)
+            results[usage.slotID] = usage
+        }
+    }
+
     private func disableProvider(_ p: ProviderID) {
         for key in Array(results.keys) where results[key]?.provider == p {
             results[key] = nil
         }
         results[p.rawValue] = .empty(p)
-        if p == .codex {
-            for key in Array(backoffUntil.keys) where key.hasPrefix("codex") {
+        if p == .codex || p == .gemini {
+            let prefix = p.rawValue
+            for key in Array(backoffUntil.keys) where key == prefix || key.hasPrefix("\(prefix):") {
                 backoffUntil[key] = nil
                 backoffStep[key] = nil
             }
@@ -231,6 +327,8 @@ final class UsageStore: ObservableObject {
             let items = results.values.filter { $0.provider == p }
             if p == .codex {
                 out.append(contentsOf: items.sorted(by: Self.codexDisplayOrder))
+            } else if p == .gemini, items.contains(where: { !$0.accountKey.isEmpty }) {
+                out.append(contentsOf: items.sorted(by: geminiDisplayOrder))
             } else if let usage = items.first {
                 out.append(usage)
             }
@@ -238,11 +336,29 @@ final class UsageStore: ObservableObject {
         return out
     }
 
+    private func geminiDisplayOrder(_ a: ProviderUsage, _ b: ProviderUsage) -> Bool {
+        let active = geminiDiscovery.accounts.first(where: \.isActive)?.accountKey
+        let aActive = !a.accountKey.isEmpty && a.accountKey == active
+        let bActive = !b.accountKey.isEmpty && b.accountKey == active
+        if aActive != bActive { return aActive }
+        let la = a.accountLabel ?? ""
+        let lb = b.accountLabel ?? ""
+        return la.localizedStandardCompare(lb) == .orderedAscending
+    }
+
     var visibleCodexCount: Int {
         orderedUsages().filter { usage in
             usage.provider == .codex
                 && Prefs.shared.isProviderEnabled(.codex)
                 && (usage.accountKey.isEmpty || Prefs.shared.isCodexAccountEnabled(usage.accountKey))
+        }.count
+    }
+
+    var visibleGeminiCount: Int {
+        orderedUsages().filter { usage in
+            usage.provider == .gemini
+                && Prefs.shared.isProviderEnabled(.gemini)
+                && (usage.accountKey.isEmpty || Prefs.shared.isGeminiAccountEnabled(usage.accountKey))
         }.count
     }
 
@@ -267,6 +383,10 @@ final class UsageStore: ObservableObject {
            !Prefs.shared.isCodexAccountEnabled(usage.accountKey) {
             return []
         }
+        if usage.provider == .gemini, !usage.accountKey.isEmpty,
+           !Prefs.shared.isGeminiAccountEnabled(usage.accountKey) {
+            return []
+        }
         let on = Prefs.shared.effectiveEnabled(usage.slotID, buckets: usage.buckets)
         return usage.buckets.filter { on.contains($0.key) }
     }
@@ -287,16 +407,22 @@ final class UsageStore: ObservableObject {
     func menuSources(lang: AppLanguage) -> [MenuSource] {
         var out: [MenuSource] = [MenuSource(id: "all", title: Loc.tr("menu.all", lang))]
         for p in ProviderID.allCases where Prefs.shared.isProviderEnabled(p) {
-            if p == .codex {
-                let slots = usages(for: .codex).filter {
-                    $0.accountKey.isEmpty || Prefs.shared.isCodexAccountEnabled($0.accountKey)
+            if p == .codex || p == .gemini {
+                let slots = usages(for: p).filter { usage in
+                    if usage.accountKey.isEmpty { return true }
+                    if p == .codex { return Prefs.shared.isCodexAccountEnabled(usage.accountKey) }
+                    return Prefs.shared.isGeminiAccountEnabled(usage.accountKey)
                 }
                 if slots.count <= 1 {
-                    out.append(MenuSource(id: "codex", title: p.displayName))
+                    out.append(MenuSource(id: p.rawValue, title: p.displayName))
                 } else {
-                    out.append(MenuSource(id: "codex", title: Loc.tr("menu.codex.max", lang)))
+                    let maxKey = p == .codex ? "menu.codex.max" : "menu.gemini.max"
+                    out.append(MenuSource(id: p.rawValue, title: Loc.tr(maxKey, lang)))
                     for usage in slots {
-                        out.append(MenuSource(id: usage.slotID, title: usage.rowTitle(multiCodex: true, lang: lang)))
+                        out.append(MenuSource(
+                            id: usage.slotID,
+                            title: usage.rowTitle(multiCodex: p == .codex, multiGemini: p == .gemini, lang: lang)
+                        ))
                     }
                 }
             } else {
@@ -316,7 +442,7 @@ final class UsageStore: ObservableObject {
                 .flatMap { enabledBuckets(for: $0) }
                 .map(\.usedPercent)
                 .max()
-        } else if prefs.menuProvider.hasPrefix("codex:"),
+        } else if prefs.menuProvider.hasPrefix("codex:") || prefs.menuProvider.hasPrefix("gemini:"),
                   let usage = results[prefs.menuProvider] {
             if !prefs.menuBucketKey.isEmpty,
                let bucket = enabledBuckets(for: usage).first(where: { $0.key == prefs.menuBucketKey }) {
@@ -326,12 +452,11 @@ final class UsageStore: ObservableObject {
             }
         } else if let p = ProviderID(rawValue: prefs.menuProvider) {
             let buckets = enabledBuckets(p)
-            if p != .codex || visibleCodexCount <= 1,
+            let multi = (p == .codex && visibleCodexCount > 1) || (p == .gemini && visibleGeminiCount > 1)
+            if !multi,
                !prefs.menuBucketKey.isEmpty,
                let bucket = buckets.first(where: { $0.key == prefs.menuBucketKey }) {
                 pct = bucket.usedPercent
-            } else if p == .codex, visibleCodexCount > 1 {
-                pct = buckets.map(\.usedPercent).max()
             } else {
                 pct = buckets.map(\.usedPercent).max()
             }
@@ -353,6 +478,10 @@ final class UsageStore: ObservableObject {
             .filter { usage in
                 if usage.provider == .codex, !usage.accountKey.isEmpty,
                    !Prefs.shared.isCodexAccountEnabled(usage.accountKey) {
+                    return false
+                }
+                if usage.provider == .gemini, !usage.accountKey.isEmpty,
+                   !Prefs.shared.isGeminiAccountEnabled(usage.accountKey) {
                     return false
                 }
                 return usage.error != nil

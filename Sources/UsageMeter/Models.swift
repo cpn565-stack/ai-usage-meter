@@ -49,6 +49,29 @@ struct CodexDiscovery: Equatable {
     var skipped: [CodexSkippedHome]
 }
 
+/// aisw 存下來的一個 Antigravity 帳號（`~/.aisw/profiles/antigravity/<name>`）。
+struct GeminiAccount: Equatable {
+    /// 穩定鍵：email（小寫）；沒有 email 時用 profile 名稱。
+    var accountKey: String
+    var email: String?
+    /// aisw profile 目錄名，例如 `account4`。
+    var profileName: String
+    var secretPath: String
+    /// `~/.aisw/config.json` 的 `active.antigravity`。
+    var isActive: Bool
+    var secretModified: Date
+}
+
+struct GeminiSkippedProfile: Equatable {
+    var profileName: String
+    var duplicateOf: String
+}
+
+struct GeminiDiscovery: Equatable {
+    var accounts: [GeminiAccount]
+    var skipped: [GeminiSkippedProfile]
+}
+
 /// 單一 provider 的最新用量結果(成功或失敗)。
 struct ProviderUsage: Equatable {
     var provider: ProviderID
@@ -68,17 +91,24 @@ struct ProviderUsage: Equatable {
         ProviderUsage(provider: p, buckets: [], plan: nil, planAccessory: nil, error: nil, updatedAt: nil)
     }
 
-    /// 偏好設定 / 結果表的穩定鍵。單帳號 Codex 仍是 `codex`。
+    /// 偏好設定 / 結果表的穩定鍵。單帳號仍是 `codex` / `gemini`。
     var slotID: String {
         if provider == .codex, !accountKey.isEmpty { return "codex:\(accountKey)" }
+        if provider == .gemini, !accountKey.isEmpty { return "gemini:\(accountKey)" }
         return provider.rawValue
     }
 
     /// 給 menu bar 用的「最緊繃」百分比。
     var worstPercent: Double? { buckets.map { $0.usedPercent }.max() }
 
-    func rowTitle(multiCodex: Bool, lang: AppLanguage) -> String {
-        guard provider == .codex, multiCodex else { return provider.displayName }
+    func rowTitle(multiCodex: Bool, multiGemini: Bool = false, lang: AppLanguage) -> String {
+        let showAccount: Bool
+        switch provider {
+        case .codex: showAccount = multiCodex
+        case .gemini: showAccount = multiGemini
+        default: showAccount = false
+        }
+        guard showAccount else { return provider.displayName }
         let label = localizedAccountLabel(lang)
         if label.isEmpty { return provider.displayName }
         return "\(provider.displayName) · \(label)"
@@ -86,7 +116,7 @@ struct ProviderUsage: Equatable {
 
     func localizedAccountLabel(_ lang: AppLanguage) -> String {
         guard let accountLabel, !accountLabel.isEmpty else { return "" }
-        if accountLabel == "default" { return Loc.tr("codex.home.default", lang) }
+        if provider == .codex, accountLabel == "default" { return Loc.tr("codex.home.default", lang) }
         return accountLabel
     }
 }

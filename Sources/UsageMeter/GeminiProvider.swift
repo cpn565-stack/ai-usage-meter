@@ -1,6 +1,10 @@
 import Foundation
 
 /// Gemini / Antigravity:讀 Antigravity 在 Keychain 的 Google OAuth token(go-keyring 格式)。
+/// 若裝了 aisw，改掃 `~/.aisw/profiles/antigravity/<name>/keyring-secret.json`（同一格式），
+/// 每個 profile 一列；新增 profile 下一輪掃描就會出現。續期只寫 UsageMeter 自己的快取，
+/// 不寫回 aisw 檔案、也不寫回共用 Keychain（那格是 agy 當下帳號）。
+/// 沒有 aisw profile 時維持舊行為：只讀 Keychain `gemini` / `antigravity`。
 /// 優先 `v1internal:retrieveUserQuotaSummary`（官方 Model Quota：Gemini Models、Gemini 4 Argon、
 /// Claude and GPT models）；失敗再退回 `fetchAvailableModels` 依 modelProvider 歸池推斷。
 /// Keychain 只在首次(或刷新失敗)時讀取,之後 token 在記憶體快取、靠 refresh token 換新,避免每次更新都跳權限詢問。
@@ -26,8 +30,12 @@ enum GeminiProvider {
     struct Creds { var accessToken: String; var refreshToken: String?; var expiry: Date? }
     private struct CachedCreds: Codable { var accessToken: String; var refreshToken: String?; var expiry: String? }
 
-    private static var cachedCreds: Creds?     // 記憶體快取,避免重複讀 keychain
-    private static var cachedProjectID: String?
+    private static var cachedCreds: Creds?     // 單帳號 Keychain 路徑的記憶體快取
+    private static let memLock = NSLock()
+    /// aisw 各帳號的 access token 快取。鍵是 accountKey。不寫回 aisw / Keychain。
+    private static var accountCreds: [String: Creds] = [:]
+    private static var projectIDs: [String: String] = [:]
+    private static let liveProjectKey = "__live__"
 
     /// 讀 Antigravity 的 keychain(會觸發權限詢問)。診斷用;一般流程請走 loadCreds()。
     static func loadCredsFromKeychain() throws -> Creds {
@@ -88,7 +96,16 @@ enum GeminiProvider {
         Keychain.deleteGenericPassword(service: cacheKeychainService, account: cacheKeychainAccount)
     }
 
+    private struct AntigravityPayload {
+        var creds: Creds
+        var email: String?
+    }
+
     private static func decodeAntigravityCreds(_ data: Data) throws -> Creds {
+        try decodeAntigravityPayload(data).creds
+    }
+
+    private static func decodeAntigravityPayload(_ data: Data) throws -> AntigravityPayload {
         guard var str = String(data: data, encoding: .utf8) else {
             throw ProviderError.parse("Antigravity 憑證不是 UTF-8")
         }
@@ -100,9 +117,264 @@ enum GeminiProvider {
               let access = tok["access_token"] as? String else {
             throw ProviderError.parse("Antigravity 憑證格式非預期")
         }
-        return Creds(accessToken: access,
-                     refreshToken: tok["refresh_token"] as? String,
-                     expiry: Date.fromISO(tok["expiry"] as? String))
+        let email = (obj["id_token_email"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return AntigravityPayload(
+            creds: Creds(accessToken: access,
+                         refreshToken: tok["refresh_token"] as? String,
+                         expiry: Date.fromISO(tok["expiry"] as? String)),
+            email: (email?.isEmpty == false) ? email : nil
+        )
+    }
+
+    // MARK: - aisw multi-account
+
+    /// 掃 aisw 的 Antigravity profiles。純讀檔，不碰 Keychain。
+    /// 同一 email 只留一筆：作用中的 profile 優先，否則留較新的那份。
+    static func discover(homeDirectory: String = NSHomeDirectory(),
+                         fileManager: FileManager = .default) -> GeminiDiscovery {
+        let root = URL(fileURLWithPath: homeDirectory, isDirectory: true)
+        let profilesRoot = root
+            .appendingPathComponent(".aisw", isDirectory: true)
+            .appendingPathComponent("profiles", isDirectory: true)
+            .appendingPathComponent("antigravity", isDirectory: true)
+        let activeName = activeProfileName(home: root, fileManager: fileManager)
+        var groups: [String: [GeminiAccount]] = [:]
+
+        let items = (try? fileManager.contentsOfDirectory(
+            at: profilesRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        for url in items {
+            var isDir: ObjCBool = false
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            guard let account = readAccount(profileDir: url, activeName: activeName, fileManager: fileManager) else {
+                continue
+            }
+            groups[account.accountKey, default: []].append(account)
+        }
+
+        var accounts: [GeminiAccount] = []
+        var skipped: [GeminiSkippedProfile] = []
+        for (_, group) in groups {
+            let canonical = pickCanonical(group)
+            accounts.append(canonical)
+            for extra in group where extra.profileName != canonical.profileName {
+                skipped.append(GeminiSkippedProfile(profileName: extra.profileName, duplicateOf: canonical.profileName))
+            }
+        }
+        accounts.sort { a, b in
+            if a.isActive != b.isActive { return a.isActive }
+            return a.profileName.localizedStandardCompare(b.profileName) == .orderedAscending
+        }
+        skipped.sort { $0.profileName.localizedStandardCompare($1.profileName) == .orderedAscending }
+        return GeminiDiscovery(accounts: accounts, skipped: skipped)
+    }
+
+    static func discoverAccounts(homeDirectory: String = NSHomeDirectory(),
+                                 fileManager: FileManager = .default) -> [GeminiAccount] {
+        discover(homeDirectory: homeDirectory, fileManager: fileManager).accounts
+    }
+
+    static func placeholder(_ account: GeminiAccount) -> ProviderUsage {
+        ProviderUsage(
+            provider: .gemini,
+            accountKey: account.accountKey,
+            accountLabel: account.profileName,
+            accountEmail: account.email,
+            buckets: [],
+            plan: "Antigravity",
+            planAccessory: nil,
+            error: nil,
+            updatedAt: nil
+        )
+    }
+
+    static func failed(account: GeminiAccount, message: String) -> ProviderUsage {
+        var usage = placeholder(account)
+        usage.error = message
+        usage.updatedAt = Date()
+        return usage
+    }
+
+    /// 診斷用：只回 email / 是否有 refresh / access 到期，不回 token。
+    static func credentialSummary(_ account: GeminiAccount, fileManager: FileManager = .default) -> (email: String?, hasRefresh: Bool, expiry: Date?)? {
+        guard let data = fileManager.contents(atPath: account.secretPath),
+              let payload = try? decodeAntigravityPayload(data) else { return nil }
+        let hasRefresh = payload.creds.refreshToken?.isEmpty == false
+        return (payload.email ?? account.email, hasRefresh, payload.creds.expiry)
+    }
+
+    private static func activeProfileName(home: URL, fileManager: FileManager) -> String? {
+        let path = home.appendingPathComponent(".aisw").appendingPathComponent("config.json").path
+        guard let data = fileManager.contents(atPath: path),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let active = obj["active"] as? [String: Any],
+              let name = active["antigravity"] as? String,
+              !name.isEmpty else { return nil }
+        return name
+    }
+
+    private static func readAccount(profileDir: URL, activeName: String?, fileManager: FileManager) -> GeminiAccount? {
+        let secret = profileDir.appendingPathComponent("keyring-secret.json")
+        guard let data = fileManager.contents(atPath: secret.path),
+              let payload = try? decodeAntigravityPayload(data) else { return nil }
+        let hasRefresh = payload.creds.refreshToken?.isEmpty == false
+        guard hasRefresh || !payload.creds.accessToken.isEmpty else { return nil }
+        let name = profileDir.lastPathComponent
+        let email = payload.email
+        let key = email?.lowercased() ?? name
+        guard !key.isEmpty else { return nil }
+        let modified = (try? fileManager.attributesOfItem(atPath: secret.path)[.modificationDate] as? Date) ?? .distantPast
+        return GeminiAccount(
+            accountKey: key,
+            email: email,
+            profileName: name,
+            secretPath: secret.path,
+            isActive: name == activeName,
+            secretModified: modified
+        )
+    }
+
+    private static func pickCanonical(_ group: [GeminiAccount]) -> GeminiAccount {
+        if let active = group.first(where: \.isActive) { return active }
+        return group.max(by: { $0.secretModified < $1.secretModified }) ?? group[0]
+    }
+
+    private static func accountCacheFile(_ accountKey: String) -> String {
+        let slug = String(accountKey.lowercased().unicodeScalars.map { scalar -> Character in
+            CharacterSet.alphanumerics.contains(scalar) ? Character(scalar) : "_"
+        }.prefix(64))
+        return "gemini-acct-\(slug).json"
+    }
+
+    private static func memoryCreds(_ key: String) -> Creds? {
+        memLock.lock(); defer { memLock.unlock() }
+        return accountCreds[key]
+    }
+
+    private static func storeMemory(_ key: String, _ creds: Creds) {
+        memLock.lock(); defer { memLock.unlock() }
+        accountCreds[key] = creds
+    }
+
+    private static func clearMemory(_ key: String) {
+        memLock.lock(); defer { memLock.unlock() }
+        accountCreds[key] = nil
+        projectIDs[key] = nil
+    }
+
+    private static func projectID(for key: String) -> String {
+        memLock.lock(); defer { memLock.unlock() }
+        return projectIDs[key] ?? ""
+    }
+
+    private static func setProjectID(_ id: String, for key: String) {
+        guard !id.isEmpty else { return }
+        memLock.lock(); defer { memLock.unlock() }
+        projectIDs[key] = id
+    }
+
+    private static func readAccountCache(_ accountKey: String) -> Creds? {
+        guard let data = AppSupportCache.readData(accountCacheFile(accountKey)) else { return nil }
+        return decodeCachedCreds(data)
+    }
+
+    private static func saveAccountCache(_ creds: Creds, _ accountKey: String) {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let cached = CachedCreds(accessToken: creds.accessToken,
+                                 refreshToken: creds.refreshToken,
+                                 expiry: creds.expiry.map { f.string(from: $0) })
+        guard let data = try? JSONEncoder().encode(cached) else { return }
+        AppSupportCache.writeData(data, name: accountCacheFile(accountKey))
+    }
+
+    private static func loadSnapshot(_ account: GeminiAccount) throws -> Creds {
+        guard let data = FileManager.default.contents(atPath: account.secretPath) else {
+            throw ProviderError.noCredentials(account.secretPath)
+        }
+        return try decodeAntigravityCreds(data)
+    }
+
+    /// 快取的 access 還有效、且 refresh token 仍跟 aisw 檔案相同，就用快取。
+    /// aisw 重寫過該 profile（refresh token 變了）則改信檔案。
+    private static func loadAccountCreds(_ account: GeminiAccount) throws -> Creds {
+        let snapshot = try loadSnapshot(account)
+        if let cached = readAccountCache(account.accountKey),
+           cached.refreshToken == snapshot.refreshToken,
+           let exp = cached.expiry, exp > Date().addingTimeInterval(60) {
+            return cached
+        }
+        return snapshot
+    }
+
+    /// 用 aisw 那份 refresh token 換 access。失敗時若這是作用中帳號，再試共用 Keychain（email 須相符）。
+    /// 新 access 只進 UsageMeter 快取。
+    static func ensureAccountCreds(_ account: GeminiAccount, forceRefresh: Bool = false) async throws -> Creds {
+        if !forceRefresh, let cached = memoryCreds(account.accountKey),
+           let exp = cached.expiry, exp > Date().addingTimeInterval(60) {
+            return cached
+        }
+        var creds = try loadAccountCreds(account)
+        let needRefresh = forceRefresh || (creds.expiry.map { $0 <= Date().addingTimeInterval(60) } ?? true)
+        guard needRefresh else {
+            storeMemory(account.accountKey, creds)
+            return creds
+        }
+        guard let rt = creds.refreshToken, !rt.isEmpty else {
+            throw ProviderError.noCredentials(account.profileName)
+        }
+        do {
+            let (at, exp) = try await refresh(rt)
+            creds.accessToken = at
+            creds.expiry = exp
+            storeMemory(account.accountKey, creds)
+            saveAccountCache(creds, account.accountKey)
+            return creds
+        } catch ProviderError.http(let code) where code == 400 || code == 401 {
+            clearMemory(account.accountKey)
+            AppSupportCache.remove(accountCacheFile(account.accountKey))
+            let reread = try loadSnapshot(account)
+            if let rt2 = reread.refreshToken, !rt2.isEmpty, rt2 != rt {
+                let (at, exp) = try await refresh(rt2)
+                var updated = reread
+                updated.accessToken = at
+                updated.expiry = exp
+                storeMemory(account.accountKey, updated)
+                saveAccountCache(updated, account.accountKey)
+                return updated
+            }
+            if account.isActive, let rescued = try? await rescueFromLiveKeychain(matching: account) {
+                return rescued
+            }
+            throw ProviderError.tokenExpired
+        }
+    }
+
+    /// agy 可能已把作用中帳號的 token 輪替進共用 Keychain，而 aisw 檔還是加入當下的快照。
+    private static func rescueFromLiveKeychain(matching account: GeminiAccount) async throws -> Creds {
+        guard let data = Keychain.genericPassword(service: keychainService, account: keychainAccount) else {
+            throw ProviderError.noCredentials("Keychain『gemini/antigravity』(需允許存取)")
+        }
+        let payload = try decodeAntigravityPayload(data)
+        if let want = account.email?.lowercased(),
+           let got = payload.email?.lowercased(), want != got {
+            throw ProviderError.tokenExpired
+        }
+        var creds = payload.creds
+        if let exp = creds.expiry, exp > Date().addingTimeInterval(60) {
+            storeMemory(account.accountKey, creds)
+            saveAccountCache(creds, account.accountKey)
+            return creds
+        }
+        guard let rt = creds.refreshToken, !rt.isEmpty else { throw ProviderError.tokenExpired }
+        let (at, exp) = try await refresh(rt)
+        creds.accessToken = at
+        creds.expiry = exp
+        storeMemory(account.accountKey, creds)
+        saveAccountCache(creds, account.accountKey)
+        return creds
     }
 
     /// 用 refresh token 換新 access token(走網路,不碰 keychain)。
@@ -190,7 +462,70 @@ enum GeminiProvider {
     }
 
     static func fetch() async throws -> ProviderUsage {
-        var creds = try await ensureCreds()
+        let found = discoverAccounts()
+        if let account = found.first(where: \.isActive) ?? found.first {
+            return try await fetch(account: account)
+        }
+        return try await fetchLive()
+    }
+
+    static func fetchAll(accounts: [GeminiAccount]? = nil) async -> [ProviderUsage] {
+        let list = accounts ?? discoverAccounts()
+        if list.isEmpty {
+            do {
+                return [try await fetchLive()]
+            } catch let error as ProviderError {
+                var empty = ProviderUsage.empty(.gemini)
+                empty.error = error.errorDescription
+                empty.updatedAt = Date()
+                return [empty]
+            } catch {
+                var empty = ProviderUsage.empty(.gemini)
+                empty.error = error.localizedDescription
+                empty.updatedAt = Date()
+                return [empty]
+            }
+        }
+        return await withTaskGroup(of: (Int, ProviderUsage).self) { group in
+            for (index, account) in list.enumerated() {
+                group.addTask {
+                    do {
+                        return (index, try await fetch(account: account))
+                    } catch let error as ProviderError {
+                        return (index, failed(account: account, message: error.errorDescription ?? "\(error)"))
+                    } catch {
+                        return (index, failed(account: account, message: error.localizedDescription))
+                    }
+                }
+            }
+            var gathered: [(Int, ProviderUsage)] = []
+            for await item in group { gathered.append(item) }
+            return gathered.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+    }
+
+    static func fetch(account: GeminiAccount) async throws -> ProviderUsage {
+        let usage = try await performFetch(
+            load: { force in try await ensureAccountCreds(account, forceRefresh: force) },
+            projectKey: account.accountKey
+        )
+        var tagged = usage
+        tagged.accountKey = account.accountKey
+        tagged.accountLabel = account.profileName
+        tagged.accountEmail = account.email
+        return tagged
+    }
+
+    private static func fetchLive() async throws -> ProviderUsage {
+        try await performFetch(
+            load: { force in try await ensureCreds(forceRefresh: force) },
+            projectKey: liveProjectKey
+        )
+    }
+
+    private static func performFetch(load: (_ force: Bool) async throws -> Creds,
+                                     projectKey: String) async throws -> ProviderUsage {
+        var creds = try await load(false)
 
         func callSummary() async throws -> (Int, Data) {
             // 空 body 即可；與官方 Model Quota 同源
@@ -200,9 +535,9 @@ enum GeminiProvider {
         }
 
         func callModels() async throws -> (Int, Data) {
-            var pid = cachedProjectID ?? ""
+            var pid = projectID(for: projectKey)
             if pid.isEmpty { pid = (try? await loadProjectID(creds.accessToken)) ?? "" }
-            if !pid.isEmpty { cachedProjectID = pid }
+            setProjectID(pid, for: projectKey)
             return try await Net.postJSON("\(base)/v1internal:fetchAvailableModels",
                                           headers: authHeaders(creds.accessToken),
                                           body: pid.isEmpty ? [:] : ["project": pid])
@@ -211,7 +546,7 @@ enum GeminiProvider {
         // 1) 優先完整四窗 summary
         var (code, body) = try await callSummary()
         if code == 401 {
-            creds = try await ensureCreds(forceRefresh: true)
+            creds = try await load(true)
             (code, body) = try await callSummary()
         }
         if code == 429 { throw ProviderError.rateLimited }
@@ -222,7 +557,7 @@ enum GeminiProvider {
         // 2) 退回 models（通常只有 5h 池，無週）
         (code, body) = try await callModels()
         if code == 401 {
-            creds = try await ensureCreds(forceRefresh: true)
+            creds = try await load(true)
             (code, body) = try await callModels()
         }
         if code == 429 { throw ProviderError.rateLimited }

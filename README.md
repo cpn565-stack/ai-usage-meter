@@ -25,7 +25,7 @@ Built with native AppKit (`NSStatusItem` + `NSPopover`). No Dock icon, no backgr
 
 ## Features
 
-- **Four providers** — Claude, Codex, Gemini, Grok side by side. Codex shows each unique ChatGPT account from `~/.codex` and `~/.codex-*` (`CODEX_HOME`).
+- **Four providers** — Claude, Codex, Gemini, Grok side by side. Codex shows each unique ChatGPT account from `~/.codex` and `~/.codex-*` (`CODEX_HOME`). Gemini shows each Antigravity account stored by aisw under `~/.aisw/profiles/antigravity/` (new profiles appear on the next refresh).
 - **Official numbers** — polls each vendor's real usage API (not a local token estimate).
 - **Per-bucket detail** — 5h / weekly windows, Claude scoped limits, Gemini family pools (Gemini + Claude/GPT × week/5h), Grok weekly split (Chat / Build / Imagine / Other).
 - **Menu-bar percentage** — show all (max) or a specific provider/bucket.
@@ -38,7 +38,7 @@ Built with native AppKit (`NSStatusItem` + `NSPopover`). No Dock icon, no backgr
 |----------|--------------|-------------------------|
 | **Claude** | Claude desktop app | `~/Library/Application Support/Claude/config.json` + Keychain `Claude Safe Storage` |
 | **Codex** | Codex CLI (`CODEX_HOME` aliases OK) | `~/.codex/auth.json` and `~/.codex-*/auth.json` |
-| **Gemini** | [Antigravity](https://antigravity.google) / Antigravity IDE | Keychain `gemini` / `antigravity` |
+| **Gemini** | [Antigravity](https://antigravity.google) / `agy`, or aisw profiles | Keychain `gemini` / `antigravity`, plus each `~/.aisw/profiles/antigravity/<name>/keyring-secret.json` |
 | **Grok** | [Grok Build CLI](https://x.ai) (`grok login`) | `~/.grok/auth.json` |
 
 You only need the apps for the providers you enable in Preferences.
@@ -79,7 +79,7 @@ Without those secrets, CI still builds, but **prebuilt Gemini token refresh will
 
 - **Claude** — decrypts Electron `safeStorage` token cache (`oauth:tokenCacheV2` / legacy), calls `GET /api/oauth/usage`, refreshes via `platform.claude.com`.
 - **Codex** — discovers unique ChatGPT accounts in `~/.codex` and sibling `~/.codex-*` homes (deduped by `account_id`; nested copies inside `~/.codex/` are ignored), calls the ChatGPT backend usage API per account, refreshes via `auth.openai.com`, and writes rotated tokens only to that account's canonical `auth.json`.
-- **Gemini** — Antigravity Keychain OAuth → Cloud Code `retrieveUserQuotaSummary` (official **Gemini Models** / **Claude and GPT models** × weekly + 5h); falls back to `fetchAvailableModels` if needed. Refresh uses the public Antigravity desktop OAuth client in `Secrets.example.swift`.
+- **Gemini** — If aisw profiles exist, each `~/.aisw/profiles/antigravity/<name>/keyring-secret.json` is a separate account (deduped by email; the profile named in `active.antigravity` wins ties). Otherwise Antigravity Keychain OAuth. Both call Cloud Code `retrieveUserQuotaSummary` (official **Gemini Models** / **Claude and GPT models** × weekly + 5h); falls back to `fetchAvailableModels` if needed. Refresh uses the public Antigravity desktop OAuth client in `Secrets.example.swift` and writes the new access token only to UsageMeter's own cache.
 - **Grok** — `~/.grok/auth.json` → `cli-chat-proxy.grok.com/v1/billing?format=credits` (weekly total + product split).
 
 ## Security & disclaimer
@@ -98,6 +98,7 @@ Without those secrets, CI still builds, but **prebuilt Gemini token refresh will
 | Gemini 401 / empty | Open Antigravity and sign in; wait for token refresh; `swift run UsageMeter --diagnose` |
 | Grok missing | Run `grok login` so `~/.grok/auth.json` exists |
 | Only one Codex account | Homes are `~/.codex` and `~/.codex-*`. Nested folders like `~/.codex/foo/auth.json` are ignored. Two homes with the same ChatGPT account are shown once. |
+| Only one Gemini account | Extra accounts come from aisw profiles in `~/.aisw/profiles/antigravity/`. Add one with `aisw add`, then refresh UsageMeter (or reopen the menu). Two profiles for the same Google account are shown once. With no aisw profiles, only the live Keychain login is shown. |
 | Claude missing | Sign in to Claude desktop; allow Keychain access to `Claude Safe Storage` |
 
 ```sh

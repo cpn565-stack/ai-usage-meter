@@ -70,6 +70,10 @@ final class Prefs: ObservableObject {
     @Published private var disabledCodexAccounts: [String] {
         didSet { d.set(disabledCodexAccounts, forKey: "disabledCodexAccounts") }
     }
+    /// 停用的 Gemini accountKey（email 或 aisw profile 名）。空 = 掃到的都讀。
+    @Published private var disabledGeminiAccounts: [String] {
+        didSet { d.set(disabledGeminiAccounts, forKey: "disabledGeminiAccounts") }
+    }
 
     private init() {
         language = AppLanguage(rawValue: d.string(forKey: "language") ?? "") ?? .system
@@ -96,6 +100,7 @@ final class Prefs: ObservableObject {
             showCodexResetCredits = d.bool(forKey: "showCodexResetCredits")
         }
         disabledCodexAccounts = d.stringArray(forKey: "disabledCodexAccounts") ?? []
+        disabledGeminiAccounts = d.stringArray(forKey: "disabledGeminiAccounts") ?? []
     }
 
     func isProviderEnabled(_ provider: ProviderID) -> Bool {
@@ -106,7 +111,9 @@ final class Prefs: ObservableObject {
         var set = Set(disabledProviders)
         if isEnabled { set.remove(provider.rawValue) } else { set.insert(provider.rawValue) }
         disabledProviders = Array(set).sorted()
-        if !isEnabled, menuProvider == provider.rawValue || (provider == .codex && menuProvider.hasPrefix("codex:")) {
+        if !isEnabled, menuProvider == provider.rawValue
+            || (provider == .codex && menuProvider.hasPrefix("codex:"))
+            || (provider == .gemini && menuProvider.hasPrefix("gemini:")) {
             menuProvider = "all"
             menuBucketKey = ""
         }
@@ -123,6 +130,22 @@ final class Prefs: ObservableObject {
         if isEnabled { set.remove(accountId) } else { set.insert(accountId) }
         disabledCodexAccounts = Array(set).sorted()
         if !isEnabled, menuProvider == "codex:\(accountId)" {
+            menuProvider = "all"
+            menuBucketKey = ""
+        }
+    }
+
+    func isGeminiAccountEnabled(_ accountKey: String) -> Bool {
+        guard !accountKey.isEmpty else { return true }
+        return !disabledGeminiAccounts.contains(accountKey)
+    }
+
+    func setGeminiAccount(_ accountKey: String, enabled isEnabled: Bool) {
+        guard !accountKey.isEmpty else { return }
+        var set = Set(disabledGeminiAccounts)
+        if isEnabled { set.remove(accountKey) } else { set.insert(accountKey) }
+        disabledGeminiAccounts = Array(set).sorted()
+        if !isEnabled, menuProvider == "gemini:\(accountKey)" {
             menuProvider = "all"
             menuBucketKey = ""
         }
@@ -190,6 +213,7 @@ final class Prefs: ObservableObject {
         var seenBuckets: [String: [String]]
         var showCodexResetCredits: Bool
         var disabledCodexAccounts: [String]
+        var disabledGeminiAccounts: [String]
     }
 
     func snapshotForTest() -> Snapshot {
@@ -198,7 +222,8 @@ final class Prefs: ObservableObject {
                  disabledProviders: disabledProviders, enabled: enabled,
                  seenBuckets: seenBuckets,
                  showCodexResetCredits: showCodexResetCredits,
-                 disabledCodexAccounts: disabledCodexAccounts)
+                 disabledCodexAccounts: disabledCodexAccounts,
+                 disabledGeminiAccounts: disabledGeminiAccounts)
     }
 
     func restoreForTest(_ s: Snapshot) {
@@ -211,6 +236,7 @@ final class Prefs: ObservableObject {
         seenBuckets = s.seenBuckets
         showCodexResetCredits = s.showCodexResetCredits
         disabledCodexAccounts = s.disabledCodexAccounts
+        disabledGeminiAccounts = s.disabledGeminiAccounts
     }
 
     /// 測試用:啟用全部 provider,並覆寫各家顯示的 bucket keys。
@@ -218,6 +244,7 @@ final class Prefs: ObservableObject {
     func applyTestDisplay(enabledProviders: [ProviderID], buckets: [ProviderID: [String]],
                           seen: [ProviderID: [String]]? = nil) {
         disabledCodexAccounts = []
+        disabledGeminiAccounts = []
         disabledProviders = ProviderID.allCases
             .filter { !enabledProviders.contains($0) }
             .map(\.rawValue)

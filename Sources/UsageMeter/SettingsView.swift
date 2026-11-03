@@ -90,6 +90,19 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
                     }
                 }
             }
+            if p == .gemini, Prefs.shared.isProviderEnabled(.gemini) {
+                let accounts = GeminiProvider.discover().accounts
+                if accounts.count > 1 {
+                    for account in accounts {
+                        let title = geminiAccountTitle(account)
+                        let accountCb = NSButton(checkboxWithTitle: title, target: self, action: #selector(geminiAccountToggled))
+                        accountCb.state = Prefs.shared.isGeminiAccountEnabled(account.accountKey) ? .on : .off
+                        accountCb.identifier = NSUserInterfaceItemIdentifier("geminiAccount|\(account.accountKey)")
+                        accountCb.toolTip = account.email
+                        providerRows.append(indented(accountCb))
+                    }
+                }
+            }
         }
         let checkUpdate = NSButton(title: Loc.tr("btn.checkUpdate", lang),
                                    target: self, action: #selector(checkUpdateTapped))
@@ -125,12 +138,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         // ── 顯示細項(各家逐項勾選)──
         var displayRows: [NSView] = []
         let multiCodex = store.visibleCodexCount > 1
+        let multiGemini = store.visibleGeminiCount > 1
         var didShowCodexReset = false
         for usage in store.orderedUsages() {
             let p = usage.provider
-            displayRows.append(makeLabel(usage.rowTitle(multiCodex: multiCodex, lang: lang), size: 12, weight: .semibold))
+            displayRows.append(makeLabel(usage.rowTitle(multiCodex: multiCodex, multiGemini: multiGemini, lang: lang), size: 12, weight: .semibold))
             if !Prefs.shared.isProviderEnabled(p)
-                || (p == .codex && !usage.accountKey.isEmpty && !Prefs.shared.isCodexAccountEnabled(usage.accountKey)) {
+                || (p == .codex && !usage.accountKey.isEmpty && !Prefs.shared.isCodexAccountEnabled(usage.accountKey))
+                || (p == .gemini && !usage.accountKey.isEmpty && !Prefs.shared.isGeminiAccountEnabled(usage.accountKey)) {
                 displayRows.append(makeLabel(Loc.tr("row.disabled", lang), size: 11, color: .secondaryLabelColor))
                 continue
             }
@@ -192,14 +207,22 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         return label
     }
 
-    /// 選單列「窗口」只在鎖定單一來源（含單一 Codex 帳號）時出現。
+    private func geminiAccountTitle(_ account: GeminiAccount) -> String {
+        if account.isActive {
+            return "\(account.profileName) · \(Loc.tr("gemini.profile.active", lang))"
+        }
+        return account.profileName
+    }
+
+    /// 選單列「窗口」只在鎖定單一來源（含單一帳號）時出現。
     private func menuWindowUsage() -> ProviderUsage? {
         let mp = Prefs.shared.menuProvider
-        if mp.hasPrefix("codex:") {
+        if mp.hasPrefix("codex:") || mp.hasPrefix("gemini:") {
             return store.usage(slotID: mp)
         }
         guard let p = ProviderID(rawValue: mp) else { return nil }
         if p == .codex, store.visibleCodexCount > 1 { return nil }
+        if p == .gemini, store.visibleGeminiCount > 1 { return nil }
         return store.usages(for: p).first
     }
 
@@ -287,6 +310,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         guard parts.count == 2, parts[0] == "codexAccount" else { return }
         Prefs.shared.setCodexAccount(parts[1], enabled: sender.state == .on)
         Task { await store.refresh(.codex) }
+    }
+    @objc private func geminiAccountToggled(_ sender: NSButton) {
+        guard let raw = sender.identifier?.rawValue else { return }
+        let parts = raw.split(separator: "|", maxSplits: 1).map(String.init)
+        guard parts.count == 2, parts[0] == "geminiAccount" else { return }
+        Prefs.shared.setGeminiAccount(parts[1], enabled: sender.state == .on)
+        Task { await store.refresh(.gemini) }
     }
     @objc private func codexResetShowToggled(_ sender: NSButton) {
         Prefs.shared.showCodexResetCredits = (sender.state == .on)

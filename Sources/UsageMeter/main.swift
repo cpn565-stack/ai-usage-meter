@@ -83,7 +83,7 @@ if CommandLine.arguments.contains("--once") {
             }
             return s
         }
-        func printUsage(_ u: ProviderUsage, multiCodex: Bool) async {
+        func printUsage(_ u: ProviderUsage, multiCodex: Bool, multiGemini: Bool = false) async {
             var planBits: [String] = []
             if let p = u.plan { planBits.append(p) }
             let showCodexReset = await MainActor.run { Prefs.shared.showCodexResetCredits }
@@ -93,7 +93,7 @@ if CommandLine.arguments.contains("--once") {
             }
             let plan = planBits.isEmpty ? "" : " [\(planBits.joined(separator: " · "))]"
             let cols = u.buckets.map(line).joined(separator: "  ")
-            let name = u.rowTitle(multiCodex: multiCodex, lang: .zhHant)
+            let name = u.rowTitle(multiCodex: multiCodex, multiGemini: multiGemini, lang: .zhHant)
             if let err = u.error, u.buckets.isEmpty {
                 print("\(name)  ✗ \(err)")
             } else {
@@ -105,6 +105,10 @@ if CommandLine.arguments.contains("--once") {
                 let usages = await CodexProvider.fetchAll()
                 let multi = usages.filter { !$0.accountKey.isEmpty }.count > 1
                 for u in usages { await printUsage(u, multiCodex: multi) }
+            } else if p == .gemini {
+                let usages = await GeminiProvider.fetchAll()
+                let multi = usages.filter { !$0.accountKey.isEmpty }.count > 1
+                for u in usages { await printUsage(u, multiCodex: false, multiGemini: multi) }
             } else {
                 do {
                     await printUsage(try await fetchProvider(p), multiCodex: false)

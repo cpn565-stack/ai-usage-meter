@@ -18,9 +18,7 @@ enum Diagnostics {
                 return diagnoseCodex()
 
             case .gemini:
-                let creds = try GeminiProvider.loadCredsFromKeychain()
-                let hasRefresh = creds.refreshToken?.isEmpty == false ? "refresh token present" : "no refresh token"
-                return [ok(provider.displayName, "\(hasRefresh), access token \(expiryText(creds.expiry))")]
+                return diagnoseGemini()
 
             case .grok:
                 let store = try GrokProvider.loadStore()
@@ -31,6 +29,35 @@ enum Diagnostics {
         } catch {
             return [fail(provider.displayName, error.localizedDescription)]
         }
+    }
+
+    private static func diagnoseGemini() -> [String] {
+        let discovery = GeminiProvider.discover()
+        if discovery.accounts.isEmpty {
+            do {
+                let creds = try GeminiProvider.loadCredsFromKeychain()
+                let hasRefresh = creds.refreshToken?.isEmpty == false ? "refresh token present" : "no refresh token"
+                return [ok("Gemini", "\(hasRefresh), access token \(expiryText(creds.expiry))")]
+            } catch {
+                return [fail("Gemini", error.localizedDescription)]
+            }
+        }
+        var lines: [String] = []
+        for account in discovery.accounts {
+            let label = "Gemini · \(account.profileName)"
+            if let summary = GeminiProvider.credentialSummary(account) {
+                let email = summary.email.map { "\($0), " } ?? ""
+                let refresh = summary.hasRefresh ? "refresh token present" : "no refresh token"
+                let active = account.isActive ? ", active in aisw" : ""
+                lines.append(ok(label, "\(email)\(refresh), access token \(expiryText(summary.expiry))\(active)"))
+            } else {
+                lines.append(fail(label, "unreadable aisw profile"))
+            }
+        }
+        for skipped in discovery.skipped {
+            lines.append("· Gemini: skipped duplicate profile \(skipped.profileName) (same account as \(skipped.duplicateOf))")
+        }
+        return lines
     }
 
     private static func diagnoseCodex() -> [String] {

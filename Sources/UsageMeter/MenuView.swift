@@ -218,15 +218,20 @@ final class PanelViewController: NSViewController {
         for v in providerStack.arrangedSubviews { providerStack.removeArrangedSubview(v); v.removeFromSuperview() }
         var rowCount = 0
         let multiCodex = store.visibleCodexCount > 1
+        let multiGemini = store.visibleGeminiCount > 1
         for usage in store.orderedUsages() where Prefs.shared.isProviderEnabled(usage.provider) {
             if usage.provider == .codex, !usage.accountKey.isEmpty,
                !Prefs.shared.isCodexAccountEnabled(usage.accountKey) {
                 continue
             }
+            if usage.provider == .gemini, !usage.accountKey.isEmpty,
+               !Prefs.shared.isGeminiAccountEnabled(usage.accountKey) {
+                continue
+            }
             let shown = usage.buckets.filter { Prefs.shared.isOn(usage.slotID, $0.key, buckets: usage.buckets) }
             // 全取消勾選且無錯誤就整家隱藏
             if shown.isEmpty && usage.error == nil && !usage.buckets.isEmpty { continue }
-            let row = makeProviderRow(usage, shown: shown, multiCodex: multiCodex)
+            let row = makeProviderRow(usage, shown: shown, multiCodex: multiCodex, multiGemini: multiGemini)
             providerStack.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: providerStack.widthAnchor).isActive = true
             rowCount += 1
@@ -284,8 +289,8 @@ final class PanelViewController: NSViewController {
 
     // MARK: - Row builders
 
-    private func makeProviderRow(_ usage: ProviderUsage, shown: [UsageBucket], multiCodex: Bool) -> NSView {
-        let name = makeLabel(usage.rowTitle(multiCodex: multiCodex, lang: lang), size: 13, weight: .semibold)
+    private func makeProviderRow(_ usage: ProviderUsage, shown: [UsageBucket], multiCodex: Bool, multiGemini: Bool) -> NSView {
+        let name = makeLabel(usage.rowTitle(multiCodex: multiCodex, multiGemini: multiGemini, lang: lang), size: 13, weight: .semibold)
         if let email = usage.accountEmail, !email.isEmpty { name.toolTip = email }
         let head = NSStackView(views: [name])
         head.orientation = .horizontal
