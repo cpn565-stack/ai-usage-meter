@@ -8,7 +8,8 @@ func fetchProvider(_ p: ProviderID) async throws -> ProviderUsage {
     case .claude: return try await ClaudeProvider.fetch()
     case .codex:  return try await CodexProvider.fetch()
     case .gemini: return try await GeminiProvider.fetch()
-    case .grok:   return try await GrokProvider.fetch()
+    case .grok:    return try await GrokProvider.fetch()
+    case .grokBot: return try await GrokBotProvider.fetch()
     }
 }
 

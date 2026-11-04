@@ -3,9 +3,9 @@
 [![Build](https://github.com/cpn565-stack/ai-usage-meter/actions/workflows/build.yml/badge.svg)](https://github.com/cpn565-stack/ai-usage-meter/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A lightweight macOS **menu bar** app that shows your official **Claude**, **Codex (ChatGPT)**, **Gemini (Antigravity)**, and **Grok (SuperGrok)** usage — 5‑hour and weekly windows — at a glance, so you never blindly hit a rate limit.
+A lightweight macOS **menu bar** app that shows your **Claude**, **Codex (ChatGPT)**, **Gemini (Antigravity)**, **Grok (SuperGrok)**, and **Grok Bot** usage — 5‑hour and weekly windows — at a glance, so you never blindly hit a rate limit.
 
-Built with native AppKit (`NSStatusItem` + `NSPopover`). No Dock icon, no background server, no third‑party telemetry. It reads the credentials already stored on your machine by the official desktop apps / CLIs and calls each provider's own usage endpoint.
+Built with native AppKit (`NSStatusItem` + `NSPopover`). No Dock icon, no background server, no third‑party telemetry. It reads the credentials already stored on your machine by the official desktop apps / CLIs and calls each provider's own usage endpoint. Grok Bot is local-only: the weekly percent Grok Bot already saved on disk.
 
 <p align="center">
   <img src="Assets/screenshots/popover.png" width="370" alt="Menu bar popover showing Claude, Codex, Gemini and Grok usage bars">
@@ -25,8 +25,8 @@ Built with native AppKit (`NSStatusItem` + `NSPopover`). No Dock icon, no backgr
 
 ## Features
 
-- **Four providers** — Claude, Codex, Gemini, Grok side by side. Codex shows each unique ChatGPT account from `~/.codex` and `~/.codex-*` (`CODEX_HOME`). Gemini shows each Antigravity account stored by aisw under `~/.aisw/profiles/antigravity/` (new profiles appear on the next refresh).
-- **Official numbers** — polls each vendor's real usage API (not a local token estimate).
+- **Five providers** — Claude, Codex, Gemini, Grok, and Grok Bot side by side. Codex shows each unique ChatGPT account from `~/.codex` and `~/.codex-*` (`CODEX_HOME`). Gemini shows each Antigravity account stored by aisw under `~/.aisw/profiles/antigravity/` (new profiles appear on the next refresh). Grok Bot is one weekly bar from its on-disk cache, separate from the Grok CLI row.
+- **Official numbers** — polls each vendor's real usage API (not a local token estimate). Grok Bot does not poll: it shows the weekly snapshot Grok Bot last wrote locally.
 - **Per-bucket detail** — 5h / weekly windows, Claude scoped limits, Gemini family pools (Gemini + Claude/GPT × week/5h), Grok weekly split (Chat / Build / Imagine / Other).
 - **Menu-bar percentage** — show all (max) or a specific provider/bucket.
 - **Auto token refresh** — refreshes OAuth tokens and writes them back when needed.
@@ -40,6 +40,7 @@ Built with native AppKit (`NSStatusItem` + `NSPopover`). No Dock icon, no backgr
 | **Codex** | Codex CLI (`CODEX_HOME` aliases OK) | `~/.codex/auth.json` and `~/.codex-*/auth.json` |
 | **Gemini** | [Antigravity](https://antigravity.google) / `agy`, or aisw profiles | Keychain `gemini` / `antigravity`, plus each `~/.aisw/profiles/antigravity/<name>/keyring-secret.json` |
 | **Grok** | [Grok Build CLI](https://x.ai) (`grok login`) | `~/.grok/auth.json` |
+| **Grok Bot** | [Grok Bot](https://x.ai) desktop app, opened at least once | `~/Library/Application Support/Grok Bot/sand-client-persistence` weekly cache (no network, no Keychain) |
 
 You only need the apps for the providers you enable in Preferences.
 
@@ -81,10 +82,11 @@ Without those secrets, CI still builds, but **prebuilt Gemini token refresh will
 - **Codex** — discovers unique ChatGPT accounts in `~/.codex` and sibling `~/.codex-*` homes (deduped by `account_id`; nested copies inside `~/.codex/` are ignored), calls the ChatGPT backend usage API per account, refreshes via `auth.openai.com`, and writes rotated tokens only to that account's canonical `auth.json`.
 - **Gemini** — If aisw profiles exist, each `~/.aisw/profiles/antigravity/<name>/keyring-secret.json` is a separate account (deduped by email; the profile named in `active.antigravity` wins ties). Otherwise Antigravity Keychain OAuth. Both call Cloud Code `retrieveUserQuotaSummary` (official **Gemini Models** / **Claude and GPT models** × weekly + 5h); falls back to `fetchAvailableModels` if needed. Refresh uses the public Antigravity desktop OAuth client in `Secrets.example.swift` and writes the new access token only to UsageMeter's own cache.
 - **Grok** — `~/.grok/auth.json` → `cli-chat-proxy.grok.com/v1/billing?format=credits` (weekly total + product split).
+- **Grok Bot** — reads the plaintext `weekly-usage.cache` blob Grok Bot stores under `sand-client-persistence` (base32 filename). One weekly percent, plan label, and reset time. Picks the cache for the active account slot when that file exists. Does not call the sand API and does not decrypt "Grok Bot Safe Storage". A stale cache is still shown; it updates only after Grok Bot itself refreshes.
 
 ## Security & disclaimer
 
-- **Personal, local, read-mostly dashboard.** Credentials stay on your Mac; traffic only goes to each vendor's own API.
+- **Personal, local, read-mostly dashboard.** Credentials stay on your Mac; traffic only goes to each vendor's own API. Grok Bot sends nothing: UsageMeter only reads the cache file.
 - OAuth `client_id` / `client_secret` for desktop clients are **public app-level identifiers** (native OAuth cannot keep a secret). They are **not** your personal account password.
 - Unofficial / undocumented endpoints may change or break without notice. **Use at your own risk.**
 - Writing refreshed tokens back to Claude/Codex/Grok local stores can affect the official apps if something goes wrong; backups are kept under `.UsageMeterBackups` next to those files.
@@ -97,6 +99,7 @@ Without those secrets, CI still builds, but **prebuilt Gemini token refresh will
 | Keychain prompt loops | Choose **Always Allow** for UsageMeter |
 | Gemini 401 / empty | Open Antigravity and sign in; wait for token refresh; `swift run UsageMeter --diagnose` |
 | Grok missing | Run `grok login` so `~/.grok/auth.json` exists |
+| Grok Bot missing | Open Grok Bot and let it load once so the local weekly cache exists. This row is not the Grok CLI quota. |
 | Only one Codex account | Homes are `~/.codex` and `~/.codex-*`. Nested folders like `~/.codex/foo/auth.json` are ignored. Two homes with the same ChatGPT account are shown once. |
 | Only one Gemini account | Extra accounts come from aisw profiles in `~/.aisw/profiles/antigravity/`. Add one with `aisw add`, then refresh UsageMeter (or reopen the menu). Two profiles for the same Google account are shown once. With no aisw profiles, only the live Keychain login is shown. |
 | Claude missing | Sign in to Claude desktop; allow Keychain access to `Claude Safe Storage` |

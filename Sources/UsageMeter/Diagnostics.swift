@@ -25,6 +25,13 @@ enum Diagnostics {
                 let hasRefresh = store.refreshToken?.isEmpty == false ? "refresh token present" : "no refresh token"
                 let email = store.email.map { "\($0), " } ?? ""
                 return [ok(provider.displayName, "\(email)\(hasRefresh), access token \(expiryText(store.expiresAt))")]
+
+            case .grokBot:
+                let usage = try GrokBotProvider.load(directory: GrokBotProvider.persistenceDirectory)
+                let pct = Int((usage.buckets.first?.usedPercent ?? 0).rounded())
+                let plan = usage.plan ?? "unknown plan"
+                let reset = usage.buckets.first?.resetsAt
+                return [ok(provider.displayName, "\(plan), local weekly cache \(pct)%, reset \(expiryText(reset))")]
             }
         } catch {
             return [fail(provider.displayName, error.localizedDescription)]

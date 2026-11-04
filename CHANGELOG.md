@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Grok Bot**：選單多一列，只讀 Grok Bot 寫在本機的週用量快取（`~/Library/Application Support/Grok Bot/sand-client-persistence` 裡的 `weekly-usage.cache`）。不打 API、不解密 Keychain。數字跟 Grok CLI 的額度分開；快取要等 Grok Bot 自己更新，過期仍顯示最後一次百分比。沒開過 Grok Bot 時提示先開啟。
 - **Codex 多帳號**：自動發現 `~/.codex` 與 `~/.codex-*`（`CODEX_HOME`，例如 `codex-work`），依 ChatGPT `account_id` 去重後並排顯示（`Codex · 預設` / `Codex · work`）。同一帳號的複本只認一份 canonical home（`~/.codex` 優先），refresh token 只寫回那份 `auth.json`。偏好設定可單獨開關帳號；選單列可鎖定其中一個或取 Codex 最高。
 - **Gemini / aisw 多帳號**：每次更新掃描 `~/.aisw/profiles/antigravity/<name>`。在 aisw 新增的 profile 下一輪就會自己多一列（`Gemini · account4`），預設開啟，不必在 UsageMeter 裡再加一次。同一 email 只留一筆（aisw 目前作用中的那份優先）。續期只寫 UsageMeter 自己的快取，不寫回 aisw 檔、也不改 agy 的共用 Keychain。沒有 aisw 時仍只讀 Keychain 那一個帳號。打開選單時若帳號清單變了，會立刻補抓。
 

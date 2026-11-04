@@ -14,6 +14,7 @@ enum ParserSelfTests {
         try testGeminiAccountDiscovery()
         try testGeminiModelsParsing()
         try testGrokBillingParsing()
+        try testGrokBotCacheParsing()
         try testUnexpectedShapeIsApiChanged()
         return [
             "✓ Claude parser fixture",
@@ -23,6 +24,7 @@ enum ParserSelfTests {
             "✓ Gemini aisw profile discovery",
             "✓ Gemini parser fixture",
             "✓ Grok billing fixture",
+            "✓ Grok Bot weekly cache fixture",
             "✓ Unexpected shape reports API change",
         ]
     }
@@ -533,6 +535,99 @@ enum ParserSelfTests {
                    "null credits with period → week bucket")
         try expect(nullUsage.buckets[0].usedPercent == 0, "null credits → 0%")
         try expect(nullUsage.plan == "SuperGrok", "null shell still SuperGrok")
+    }
+
+    private static func testGrokBotCacheParsing() throws {
+        try expect(GrokBotProvider.encodePersistenceKey("foobar") == "mzxw6ytboi",
+                   "base32 encode mismatch")
+        try expect(GrokBotProvider.decodePersistenceKey("MZXW6YTBOI======") == "foobar",
+                   "base32 decode mismatch")
+        let round = "sand.client.slice.account.grok%7Cuser_test.weekly-usage.cache"
+        try expect(GrokBotProvider.decodePersistenceKey(GrokBotProvider.encodePersistenceKey(round)) == round,
+                   "base32 round-trip mismatch")
+
+        let data = Data("""
+        {
+          "schemaVersion": 2,
+          "value": {
+            "kind": "present",
+            "selectedTeamId": null,
+            "reading": {
+              "usage": {
+                "percentUsed": 10.855592,
+                "nextResetMs": 1793805181986,
+                "isSandTrial": false,
+                "grokPlanLabel": "SuperGrok"
+              },
+              "readAtMs": 1793717618728
+            },
+            "expiresAtMs": 1
+          }
+        }
+        """.utf8)
+        let snap = try GrokBotProvider.parseWeeklyCache(data)
+        try expect(snap.usage.provider == .grokBot, "Grok Bot provider mismatch")
+        try expect(snap.usage.plan == "SuperGrok", "Grok Bot plan mismatch")
+        try expect(snap.usage.buckets.map(\.key) == ["week"], "Grok Bot buckets mismatch")
+        try expect(snap.usage.buckets[0].label == "win.week", "Grok Bot label mismatch")
+        try expect(abs(snap.usage.buckets[0].usedPercent - 10.855592) < 0.0001, "Grok Bot percent mismatch")
+        let reset = snap.usage.buckets[0].resetsAt?.timeIntervalSince1970 ?? -1
+        try expect(abs(reset - 1793805181.986) < 0.01, "Grok Bot reset mismatch")
+        try expect(snap.usage.error == nil, "stale cache must not be an error")
+        try expect(snap.readAtMs == 1793717618728, "Grok Bot readAt mismatch")
+
+        let over = Data("""
+        {"value":{"kind":"present","reading":{"usage":{"percentUsed":150},"readAtMs":2}}}
+        """.utf8)
+        let clamped = try GrokBotProvider.parseWeeklyCache(over)
+        try expect(clamped.usage.buckets[0].usedPercent == 100, "Grok Bot percent should clamp at 100")
+
+        do {
+            _ = try GrokBotProvider.parseWeeklyCache(Data(#"{"value":{"kind":"absent"}}"#.utf8))
+            throw Failure(message: "absent Grok Bot cache should fail")
+        } catch let error as ProviderError {
+            if case .noCredentials = error {} else {
+                throw Failure(message: "absent cache should be noCredentials, got \(error.localizedDescription)")
+            }
+        }
+
+        do {
+            _ = try GrokBotProvider.parseWeeklyCache(Data(#"{"value":{"kind":"present"}}"#.utf8))
+            throw Failure(message: "present cache without usage should fail")
+        } catch let error as ProviderError {
+            if case .apiChanged = error {} else {
+                throw Failure(message: "broken cache should be apiChanged, got \(error.localizedDescription)")
+            }
+        }
+
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("usagemeter-grokbot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        func blob(_ key: String, _ json: String) throws {
+            let name = GrokBotProvider.encodePersistenceKey(key) + ".blob"
+            try Data(json.utf8).write(to: dir.appendingPathComponent(name))
+        }
+        func cacheJSON(percent: Double, readAt: Double) -> String {
+            """
+            {"schemaVersion":2,"value":{"kind":"present","reading":{"usage":{"percentUsed":\(percent),"nextResetMs":1793805181986,"grokPlanLabel":"SuperGrok"},"readAtMs":\(readAt)}}}
+            """
+        }
+        let slotKey = "sand.client.slice.client-meta.account-slot"
+        let activeKey = "sand.client.slice.account.grok%7Caaa.weekly-usage.cache"
+        let otherKey = "sand.client.slice.account.grok%7Cbbb.weekly-usage.cache"
+        try blob(slotKey, #"{"schemaVersion":1,"value":"grok|aaa"}"#)
+        try blob(activeKey, cacheJSON(percent: 10, readAt: 100))
+        try blob(otherKey, cacheJSON(percent: 40, readAt: 900))
+
+        let picked = try GrokBotProvider.load(directory: dir.path)
+        try expect(picked.buckets[0].usedPercent == 10, "should follow the active account slot, got \(picked.buckets[0].usedPercent)")
+
+        let slotURL = dir.appendingPathComponent(GrokBotProvider.encodePersistenceKey(slotKey) + ".blob")
+        try FileManager.default.removeItem(at: slotURL)
+        let newest = try GrokBotProvider.load(directory: dir.path)
+        try expect(newest.buckets[0].usedPercent == 40, "without a slot, newest readAtMs wins, got \(newest.buckets[0].usedPercent)")
     }
 
     private static func testUnexpectedShapeIsApiChanged() throws {

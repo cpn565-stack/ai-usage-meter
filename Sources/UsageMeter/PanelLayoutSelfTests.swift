@@ -246,6 +246,12 @@ enum PanelLayoutSelfTests {
                     ("imagine", "grok.imagine", 4),
                 ]),
                 plan: "SuperGrok", error: nil, updatedAt: Date()),
+            .grokBot: ProviderUsage(
+                provider: .grokBot,
+                buckets: buckets([
+                    ("week", "win.week", 11),
+                ]),
+                plan: "SuperGrok", error: nil, updatedAt: Date()),
         ]
     }
 
